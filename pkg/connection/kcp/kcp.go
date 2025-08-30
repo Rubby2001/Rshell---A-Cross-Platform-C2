@@ -7,10 +7,10 @@ import (
 	"BackendTemplate/pkg/encrypt"
 	"BackendTemplate/pkg/qqwry"
 	"BackendTemplate/pkg/utils"
+	"BackendTemplate/pkg/webhooks"
 	"bufio"
 	"encoding/binary"
 	"fmt"
-	"github.com/xtaci/kcp-go/v5"
 	"io"
 	"net"
 	"os"
@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xtaci/kcp-go/v5"
 )
 
 var KCPClientManger = make(map[string]*kcp.UDPSession)
@@ -111,10 +113,13 @@ func HandleKCPConnection(conn *kcp.UDPSession) {
 				if flag > 4 {
 					arch = "x64"
 				}
-
-				database.Engine.Insert(&database.Clients{Uid: uid, FirstStart: formattedTime, ExternalIP: externalIp, InternalIP: localIP, Username: UserName, Computer: hostName, Process: processName, Pid: strconv.Itoa(int(processID)), Address: address, Arch: arch, Note: "", Sleep: "0", Online: "1", Color: ""})
+				c := database.Clients{Uid: uid, FirstStart: formattedTime, ExternalIP: externalIp, InternalIP: localIP, Username: UserName, Computer: hostName, Process: processName, Pid: strconv.Itoa(int(processID)), Address: address, Arch: arch, Note: "", Sleep: "5", Online: "1", Color: ""}
+				database.Engine.Insert(&c)
 				database.Engine.Insert(&database.Shell{Uid: uid, ShellContent: ""})
 				database.Engine.Insert(&database.Notes{Uid: uid, Note: ""})
+				if exits, key := webhooks.CheckEnable(); exits {
+					webhooks.SendWecom(c, key)
+				}
 			}
 			database.Engine.Where("uid = ?", uid).Update(&database.Clients{Online: "1"})
 			clientTime := &ClientTime{

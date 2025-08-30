@@ -3,11 +3,12 @@ package qqwry
 import (
 	_ "embed"
 	"fmt"
-	"github.com/lionsoul2014/ip2region/binding/golang/xdb"
 	"io/ioutil"
 	"net"
 	"os"
 	"strings"
+
+	"github.com/lionsoul2014/ip2region/binding/golang/xdb"
 )
 
 //go:embed ip2region.xdb
@@ -66,14 +67,4 @@ func GetLocationByIP(ip string) (string, error) {
 	}
 
 	return region, nil
-}
-
-func main() {
-	ip := "1.2.3.4"
-	location, err := GetLocationByIP(ip)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-	fmt.Printf("IP: %s, Location: %s\n", ip, location)
 }

@@ -1,63 +1,12 @@
 package api
 
 import (
+	"BackendTemplate/pkg/common"
 	"BackendTemplate/pkg/database"
-	"crypto/rand"
-	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"net/http"
-	"time"
+
+	"github.com/gin-gonic/gin"
 )
-
-var JwtKey []byte
-
-func init() {
-	var err error
-	JwtKey, err = generateSecureKey(32)
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
-// Claims 结构体定义 JWT 的负载
-type Claims struct {
-	Username string `json:"username"`
-	jwt.RegisteredClaims
-}
-
-// 生成 JWT
-func generateJWT(username string) (string, error) {
-	expirationTime := time.Now().Add(24 * time.Hour)
-	claims := &Claims{
-		Username: username,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(expirationTime),
-		},
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(JwtKey)
-}
-func generateSecureKey(length int) ([]byte, error) {
-	key := make([]byte, length)
-	_, err := rand.Read(key)
-	if err != nil {
-		return nil, err
-	}
-	return key, nil
-}
-
-// 验证 JWT
-func validateJWT(tokenString string) (*Claims, error) {
-	claims := &Claims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		return JwtKey, nil
-	})
-	if err != nil || !token.Valid {
-		return nil, err
-	}
-	return claims, nil
-}
 
 // 登录处理函数
 func LoginHandler(c *gin.Context) {
@@ -73,7 +22,7 @@ func LoginHandler(c *gin.Context) {
 	// 假设用户名和密码验证成功
 	var users database.Users
 	if database.Engine.Where("username = ?", loginData.Username).Get(&users); users.Password == loginData.Password {
-		token, err := generateJWT(loginData.Username)
+		token, err := common.GenerateJWT(loginData.Username)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate token"})
 			return
@@ -86,26 +35,6 @@ func LoginHandler(c *gin.Context) {
 		}})
 	} else {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
-	}
-}
-
-// JWT 验证中间件
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		tokenString := c.GetHeader("Authorization2")[len("Bearer "):]
-		if tokenString == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token required"})
-			c.Abort()
-			return
-		}
-		claims, err := validateJWT(tokenString)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-			c.Abort()
-			return
-		}
-		c.Set("username", claims.Username)
-		c.Next()
 	}
 }
 

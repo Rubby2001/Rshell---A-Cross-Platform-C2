@@ -13,4 +13,5 @@ var (
 	Http_post_client_output_type_value = "_data"
 	Http_post_server_output_prepend    = "{\"data\":{\"log_id\":\"3796460679\",\"action_rule\":{\"pos_1\":[],\"pos_2\":[],\"pos_3\":[\""
 	Http_post_server_output_append     = "%%\"]}}}"
+	WecomPushApi                       = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send"
 )
