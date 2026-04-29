@@ -61,31 +61,26 @@ func BasicAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// AuthMiddleware validates JWT from Token or query token.
+// AuthMiddleware validates JWT from Token header or query param.
 func AuthMiddleware() gin.HandlerFunc {
-        return func(c *gin.Context) {
-                authHeader := strings.TrimSpace(c.GetHeader("Token"))
-                // 支持URL查询参数传递token，方便SSE之类的客户端
-                if authHeader == "" {
-                        queryToken := c.Query("token")
-                        if queryToken != "" {
-                                authHeader = "Bearer " + queryToken
-                        }
-                }
+	return func(c *gin.Context) {
+		tokenString := strings.TrimSpace(c.GetHeader("Token"))
+		// 支持URL查询参数传递token，方便SSE之类的客户端
+		if tokenString == "" {
+			tokenString = c.Query("token")
+		}
 
-		if authHeader == "" {
+		if tokenString == "" {
 			c.String(http.StatusUnauthorized, "Token required")
 			c.Abort()
 			return
 		}
 
-		if len(authHeader) < len("Bearer ") || !strings.EqualFold(authHeader[:len("Bearer ")], "Bearer ") {
-			c.String(http.StatusUnauthorized, "Invalid token format")
-			c.Abort()
-			return
+		// 兼容带 "Bearer " 前缀的旧格式
+		if len(tokenString) > len("Bearer ") && strings.EqualFold(tokenString[:len("Bearer ")], "Bearer ") {
+			tokenString = strings.TrimSpace(tokenString[len("Bearer "):])
 		}
 
-		tokenString := strings.TrimSpace(authHeader[len("Bearer "):])
 		if tokenString == "" {
 			c.String(http.StatusUnauthorized, "Token required")
 			c.Abort()
