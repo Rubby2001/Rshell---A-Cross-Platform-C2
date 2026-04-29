@@ -21,14 +21,27 @@ import (
 	"embed"
 	"flag"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 )
 
 //go:embed dist
 var embedFS embed.FS
+
+// tlsErrorDiscarder is an io.Writer that silently discards TLS handshake error logs.
+type tlsErrorDiscarder struct{}
+
+func (tlsErrorDiscarder) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "TLS handshake error") {
+		return len(p), nil
+	}
+	os.Stderr.Write(p)
+	return len(p), nil
+}
 
 func main() {
 	utils.InitFunction()
@@ -96,7 +109,11 @@ func main() {
 			os.Exit(1)
 		}
 		tlsListener := tls.NewListener(listener, tlsConfig)
-		err = http.Serve(tlsListener, r)
+		srv := &http.Server{
+			Handler: r,
+			ErrorLog: log.New(&tlsErrorDiscarder{}, "", 0),
+		}
+		err = srv.Serve(tlsListener)
 	default:
 		err = r.Run(addr)
 	}
