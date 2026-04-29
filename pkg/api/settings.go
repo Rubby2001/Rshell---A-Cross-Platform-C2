@@ -7,11 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var settings []struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
 // ListSettings list all settings
 // @Summary List settings
 // @Tags Settings
@@ -36,6 +31,10 @@ func ListSettings(c *gin.Context) {
 // @Router /api/v1/settings [put]
 // @Security BearerAuth
 func EditSettings(c *gin.Context) {
+	var settings []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}
 	if err := c.ShouldBindJSON(&settings); err != nil {
 		response.BadRequest(c, err.Error())
 		return
