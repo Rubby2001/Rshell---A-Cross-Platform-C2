@@ -17,6 +17,7 @@ import (
 	"Rshell/pkg/mcp"
 	"Rshell/pkg/routers"
 	"Rshell/pkg/utils"
+	"bufio"
 	"crypto/tls"
 	"embed"
 	"flag"
@@ -71,54 +72,19 @@ func main() {
 	addr := "0.0.0.0:" + strconv.Itoa(*bindPort)
 	logger.Info("Listening on port " + strconv.Itoa(*bindPort))
 
-	// HTTP→HTTPS redirect server
-	redirectServer := &http.Server{
-		Addr: "0.0.0.0:" + strconv.Itoa(*bindPort-1),
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			target := fmt.Sprintf("https://%s%s", r.Host, r.URL.RequestURI())
-			http.Redirect(w, r, target, http.StatusFound)
-		}),
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
-
 	var err error
 	switch {
 	case *certPath != "" && *keyPath != "":
-		logger.Info("TLS mode: using custom certificate")
-		logger.Info("HTTP redirect on port " + strconv.Itoa(*bindPort-1))
-		go func() {
-			if redirectErr := redirectServer.ListenAndServe(); redirectErr != nil && redirectErr != http.ErrServerClosed {
-				logger.Error("Redirect server error: " + redirectErr.Error())
-			}
-		}()
-		err = r.RunTLS(addr, *certPath, *keyPath)
+		logger.Info("TLS mode: using custom certificate, HTTP→HTTPS redirect on same port")
+		err = runTLSWithRedirect(r, addr, *certPath, *keyPath)
 	case *enableTLS:
-		logger.Info("TLS mode: using self-signed certificate")
-		logger.Info("HTTP redirect on port " + strconv.Itoa(*bindPort-1))
-		go func() {
-			if redirectErr := redirectServer.ListenAndServe(); redirectErr != nil && redirectErr != http.ErrServerClosed {
-				logger.Error("Redirect server error: " + redirectErr.Error())
-			}
-		}()
+		logger.Info("TLS mode: using self-signed certificate, HTTP→HTTPS redirect on same port")
 		certPEM, keyPEM, genErr := cert.GenerateSelfSignedCert()
 		if genErr != nil {
 			logger.Error("Failed to generate self-signed cert: " + genErr.Error())
 			os.Exit(1)
 		}
-		cert, certErr := tls.X509KeyPair(certPEM, keyPEM)
-		if certErr != nil {
-			logger.Error("Failed to parse certificate: " + certErr.Error())
-			os.Exit(1)
-		}
-		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
-		listener, listenErr := net.Listen("tcp", addr)
-		if listenErr != nil {
-			logger.Error("Failed to listen: " + listenErr.Error())
-			os.Exit(1)
-		}
-		tlsListener := tls.NewListener(listener, tlsConfig)
-		err = http.Serve(tlsListener, r)
+		err = runTLSWithRedirect(r, addr, string(certPEM), string(keyPEM))
 	default:
 		err = r.Run(addr)
 	}
@@ -127,4 +93,107 @@ func main() {
 		logger.Error(err.Error())
 		os.Exit(1)
 	}
+}
+
+// peekListener 单端口复用：通过首字节判断 TLS(0x16) 还是 HTTP
+type peekListener struct {
+	net.Listener
+	tlsConfig *tls.Config
+	handler   http.Handler
+}
+
+func (l *peekListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+
+	br := bufio.NewReader(conn)
+	firstByte, err := br.Peek(1)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	if firstByte[0] == 0x16 {
+		// TLS handshake → wrap with TLS
+		tlsConn := tls.Server(&readWrapper{br, conn}, l.tlsConfig)
+		if err := tlsConn.Handshake(); err != nil {
+			tlsConn.Close()
+			return nil, err
+		}
+		return tlsConn, nil
+	}
+
+	// HTTP request → return redirect connection
+	return &redirectConn{br, conn}, nil
+}
+
+// readWrapper 让 bufio.Reader + 原始 conn 组合实现 net.Conn
+type readWrapper struct {
+	br   *bufio.Reader
+	conn net.Conn
+}
+
+func (r *readWrapper) Read(b []byte) (int, error)     { return r.br.Read(b) }
+func (r *readWrapper) Write(b []byte) (int, error)    { return r.conn.Write(b) }
+func (r *readWrapper) Close() error                   { return r.conn.Close() }
+func (r *readWrapper) LocalAddr() net.Addr            { return r.conn.LocalAddr() }
+func (r *readWrapper) RemoteAddr() net.Addr           { return r.conn.RemoteAddr() }
+func (r *readWrapper) SetDeadline(t time.Time) error  { return r.conn.SetDeadline(t) }
+func (r *readWrapper) SetReadDeadline(t time.Time) error {
+	return r.conn.SetReadDeadline(t)
+}
+func (r *readWrapper) SetWriteDeadline(t time.Time) error {
+	return r.conn.SetWriteDeadline(t)
+}
+
+// redirectConn 对 HTTP 连接返回 302 重定向
+type redirectConn struct {
+	br   *bufio.Reader
+	conn net.Conn
+}
+
+func (r *redirectConn) Read(b []byte) (int, error) {
+	n, err := r.br.Read(b)
+	if n == 0 && err != nil {
+		return 0, err
+	}
+	// 写入 302 响应
+	resp := "HTTP/1.1 302 Found\r\nLocation: https://" + r.conn.LocalAddr().String() + "\r\nConnection: close\r\n\r\n"
+	r.conn.Write([]byte(resp))
+	r.conn.Close()
+	return n, nil
+}
+func (r *redirectConn) Write(b []byte) (int, error)    { return 0, net.ErrClosed }
+func (r *redirectConn) Close() error                   { return r.conn.Close() }
+func (r *redirectConn) LocalAddr() net.Addr            { return r.conn.LocalAddr() }
+func (r *redirectConn) RemoteAddr() net.Addr           { return r.conn.RemoteAddr() }
+func (r *redirectConn) SetDeadline(t time.Time) error  { return r.conn.SetDeadline(t) }
+func (r *redirectConn) SetReadDeadline(t time.Time) error {
+	return r.conn.SetReadDeadline(t)
+}
+func (r *redirectConn) SetWriteDeadline(t time.Time) error {
+	return r.conn.SetWriteDeadline(t)
+}
+
+func runTLSWithRedirect(handler http.Handler, addr, certPEM, keyPEM string) error {
+	cert, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+	if err != nil {
+		return fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen: %w", err)
+	}
+
+	pl := &peekListener{
+		Listener:  listener,
+		tlsConfig: tlsConfig,
+		handler:   handler,
+	}
+
+	return http.Serve(pl, handler)
 }
