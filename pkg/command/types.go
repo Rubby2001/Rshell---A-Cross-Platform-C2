@@ -1,5 +1,6 @@
 package command
 
+// 命令类型常量
 const (
 	SLEEP                = 21
 	PAUSE                = 22

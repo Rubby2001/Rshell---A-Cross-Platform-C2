@@ -1,10 +1,147 @@
 package command
 
 import (
+	"Rshell/pkg/connection"
 	"Rshell/pkg/utils"
 	"strings"
 	"sync"
 )
+
+// --- Command Queue ---
+
+type ClientCommandQueue struct {
+	mu     sync.Mutex
+	queues map[string][][]byte
+}
+
+var CommandQueues = &ClientCommandQueue{
+	queues: make(map[string][][]byte),
+}
+
+func (c *ClientCommandQueue) AddCommand(clientID string, command []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.queues[clientID]; !exists {
+		c.queues[clientID] = [][]byte{}
+	}
+	c.queues[clientID] = append(c.queues[clientID], command)
+}
+
+func (c *ClientCommandQueue) GetCommand(clientID string) (command []byte, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	queue, exists := c.queues[clientID]
+	if !exists {
+		c.queues[clientID] = [][]byte{}
+		return []byte{}, false
+	}
+	if len(queue) == 0 {
+		return []byte{}, false
+	}
+	command, c.queues[clientID] = queue[0], queue[1:]
+	return command, true
+}
+
+// --- Pid Queue ---
+
+type PidQueue struct {
+	mutex  sync.Mutex
+	Queues map[string]chan string
+}
+
+var VarPidQueue = &PidQueue{Queues: make(map[string]chan string)}
+
+func (q *PidQueue) Add(uid string, pids string) {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+	if _, exists := q.Queues[uid]; !exists {
+		q.Queues[uid] = make(chan string, 1)
+	}
+	select {
+	case <-q.Queues[uid]:
+	default:
+	}
+	q.Queues[uid] <- pids
+}
+
+func (q *PidQueue) GetOrCreateQueue(uid string) chan string {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+	if _, exists := q.Queues[uid]; !exists {
+		q.Queues[uid] = make(chan string, 1)
+	}
+	return q.Queues[uid]
+}
+
+// --- Drives Queue ---
+
+type DrivesQueue struct {
+	mutex  sync.Mutex
+	Queues map[string]chan []string
+}
+
+var VarDrivesQueue = &DrivesQueue{Queues: make(map[string]chan []string)}
+
+func (q *DrivesQueue) Add(uid string, files []string) {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+	if _, exists := q.Queues[uid]; !exists {
+		q.Queues[uid] = make(chan []string, 1)
+	}
+	select {
+	case <-q.Queues[uid]:
+	default:
+	}
+	q.Queues[uid] <- files
+}
+
+func (q *DrivesQueue) GetOrCreateQueue(uid string) chan []string {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+	if _, exists := q.Queues[uid]; !exists {
+		q.Queues[uid] = make(chan []string, 1)
+	}
+	return q.Queues[uid]
+}
+
+// --- File Content Queue ---
+
+type FileContentQueue struct {
+	mutex  sync.Mutex
+	Queues map[string]map[string]chan string
+}
+
+var VarFileContentQueue = &FileContentQueue{Queues: make(map[string]map[string]chan string)}
+
+func (q *FileContentQueue) Add(uid string, filePath, files string) {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+	if q.Queues[uid] == nil {
+		q.Queues[uid] = make(map[string]chan string)
+	}
+	if _, exists := q.Queues[uid][filePath]; !exists {
+		q.Queues[uid][filePath] = make(chan string, 1)
+	}
+	select {
+	case <-q.Queues[uid][filePath]:
+	default:
+	}
+	q.Queues[uid][filePath] <- files
+}
+
+func (q *FileContentQueue) GetOrCreateQueue(uid string, filePath string) chan string {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+	if q.Queues[uid] == nil {
+		q.Queues[uid] = make(map[string]chan string)
+	}
+	if _, exists := q.Queues[uid][filePath]; !exists {
+		q.Queues[uid][filePath] = make(chan string, 1)
+	}
+	return q.Queues[uid][filePath]
+}
+
+// --- File Browser Queue ---
 
 type FileBrowserQueue struct {
 	mutex  sync.Mutex
@@ -16,25 +153,21 @@ var VarFileBrowserQueue = &FileBrowserQueue{Queues: make(map[string]chan string)
 func (q *FileBrowserQueue) Add(uid string, files string) {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
-
 	if _, exists := q.Queues[uid]; !exists {
 		q.Queues[uid] = make(chan string, 1)
 	}
 	select {
-	case <-q.Queues[uid]: // 清空旧数据
-	default: // 若通道为空，继续发送
+	case <-q.Queues[uid]:
+	default:
 	}
-
-	// 发送最新的 pids 数据
 	q.Queues[uid] <- files
 }
 
 func (q *FileBrowserQueue) GetOrCreateQueue(uid string) chan string {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
-
 	if _, exists := q.Queues[uid]; !exists {
-		q.Queues[uid] = make(chan string, 1) // 带缓冲区的通道，防止阻塞
+		q.Queues[uid] = make(chan string, 1)
 	}
 	return q.Queues[uid]
 }
@@ -42,7 +175,7 @@ func (q *FileBrowserQueue) GetOrCreateQueue(uid string) chan string {
 type FileNode struct {
 	Name         string      `json:"name"`
 	Size         string      `json:"size"`
-	Type         string      `json:"type"` // "D" 表示目录，"F" 表示文件
+	Type         string      `json:"type"`
 	Path         string      `json:"path"`
 	ModifiedTime string      `json:"modifiedTime,omitempty"`
 	Children     []*FileNode `json:"children,omitempty"`
@@ -60,23 +193,19 @@ func ParseDirectoryString(uid string, data string) []*FileNode {
 		return UidFileBrowser[uid]
 	}
 
-	// 获取当前目录路径
 	currentDir := strings.TrimSuffix(lines[0], "/*")
 	currentDir = strings.Replace(currentDir, "\\", "/", -1)
 	currentDir = strings.TrimSuffix(currentDir, "/")
 
-	// 判断操作系统类型
 	isWindows := len(currentDir) >= 2 && currentDir[1] == ':'
 
-	// 获取盘符/根节点名称
 	var rootName string
 	if isWindows {
-		rootName = currentDir[:2] // "C:", "Z:" 等
+		rootName = currentDir[:2]
 	} else {
 		rootName = "/"
 	}
 
-	// 初始化或获取根节点
 	if _, exists := UidFileBrowser[uid]; !exists {
 		UidFileBrowser[uid] = []*FileNode{{
 			Name:     rootName,
@@ -86,7 +215,6 @@ func ParseDirectoryString(uid string, data string) []*FileNode {
 		}}
 	}
 
-	// 解析当前目录下的文件/目录
 	var children []*FileNode
 	for _, line := range lines[3:] {
 		if strings.TrimSpace(line) == "" {
@@ -114,25 +242,19 @@ func ParseDirectoryString(uid string, data string) []*FileNode {
 		children = append(children, child)
 	}
 
-	// 更新目录树
 	updateFileTree(uid, currentDir, children)
-
 	return UidFileBrowser[uid]
 }
 
-// 更新文件树的核心函数
 func updateFileTree(uid, currentDir string, children []*FileNode) {
-	// 将目录路径拆分为部分
 	var parts []string
 	if currentDir == "/" {
 		parts = []string{}
 	} else if strings.HasPrefix(currentDir, "/") {
-		// Linux路径
 		if currentDir != "/" {
 			parts = strings.Split(currentDir[1:], "/")
 		}
 	} else if len(currentDir) >= 2 && currentDir[1] == ':' {
-		// Windows路径
 		if len(currentDir) > 2 {
 			pathPart := currentDir[2:]
 			if strings.HasPrefix(pathPart, "/") {
@@ -144,13 +266,11 @@ func updateFileTree(uid, currentDir string, children []*FileNode) {
 		}
 	}
 
-	// 获取根节点
 	root := getRootNode(uid, currentDir)
 	if root == nil {
 		return
 	}
 
-	// 导航到目标目录
 	targetDir := root
 	for _, part := range parts {
 		found := false
@@ -162,7 +282,6 @@ func updateFileTree(uid, currentDir string, children []*FileNode) {
 			}
 		}
 		if !found {
-			// 创建不存在的目录
 			var newPath string
 			if targetDir.Path == "/" {
 				newPath = "/" + part
@@ -171,7 +290,6 @@ func updateFileTree(uid, currentDir string, children []*FileNode) {
 			} else {
 				newPath = targetDir.Path + "/" + part
 			}
-
 			newDir := &FileNode{
 				Name:     part,
 				Type:     "D",
@@ -183,55 +301,42 @@ func updateFileTree(uid, currentDir string, children []*FileNode) {
 		}
 	}
 
-	// 更新目标目录的子节点
-	// 首先将现有节点转换为map以便快速查找
 	existingMap := make(map[string]*FileNode)
 	for _, child := range targetDir.Children {
 		key := child.Name + ":" + child.Type
 		existingMap[key] = child
 	}
 
-	// 准备新的子节点列表
 	var newChildren []*FileNode
-
-	// 添加或更新节点
 	for _, newChild := range children {
 		key := newChild.Name + ":" + newChild.Type
 		if existingChild, exists := existingMap[key]; exists {
-			// 更新现有节点
 			existingChild.Size = newChild.Size
 			existingChild.ModifiedTime = newChild.ModifiedTime
-			// 对于目录，保留其原有子节点
 			if newChild.Type == "D" {
 				newChild.Children = existingChild.Children
 			}
 			newChildren = append(newChildren, existingChild)
 			delete(existingMap, key)
 		} else {
-			// 添加新节点
 			newChildren = append(newChildren, newChild)
 		}
 	}
 
-	// 保留不在当前列表中的目录（但保留其子节点）
 	for _, remaining := range existingMap {
 		if remaining.Type == "D" {
-			// 保留目录及其子节点
 			newChildren = append(newChildren, remaining)
 		}
-		// 文件类型如果不在新列表中，将被删除
 	}
 
 	targetDir.Children = newChildren
 }
 
-// 获取根节点
 func getRootNode(uid, path string) *FileNode {
 	if _, exists := UidFileBrowser[uid]; !exists {
 		return nil
 	}
 
-	// 确定根节点名称
 	var rootName string
 	if strings.HasPrefix(path, "/") {
 		rootName = "/"
@@ -246,11 +351,18 @@ func getRootNode(uid, path string) *FileNode {
 			return node
 		}
 	}
-
 	return nil
 }
 
-// 检查盘符是否存在
+func ParseDrives(uid string, drives []string) []*FileNode {
+	for _, drive := range drives {
+		if !exsitPan(UidFileBrowser[uid], drive) {
+			UidFileBrowser[uid] = append(UidFileBrowser[uid], &FileNode{Name: drive, Type: "D", Path: drive})
+		}
+	}
+	return UidFileBrowser[uid]
+}
+
 func exsitPan(filenode []*FileNode, pan string) bool {
 	for _, file := range filenode {
 		if file.Name == pan {
@@ -260,7 +372,6 @@ func exsitPan(filenode []*FileNode, pan string) bool {
 	return false
 }
 
-// 原来的辅助函数
 func isInChild(root *FileNode, child *FileNode) bool {
 	for _, childNode := range root.Children {
 		if childNode.Name == child.Name && childNode.Type == child.Type {
@@ -278,4 +389,51 @@ func deleteChild(root []*FileNode, child *FileNode) []*FileNode {
 		}
 	}
 	return result
+}
+
+// --- SOCKS5 Queue ---
+
+type Socks5Queue struct {
+	mutex  sync.Mutex
+	Queues map[string]map[string]chan string
+}
+
+var VarSocks5Queue = &Socks5Queue{Queues: make(map[string]map[string]chan string)}
+
+func (q *Socks5Queue) Add(uid string, dataMd5, rawData string) {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
+	if realUID, exists := connection.GlobalUIDMapper.GetRealUID(uid); exists {
+		uid = realUID
+	}
+
+	if q.Queues[uid] == nil {
+		q.Queues[uid] = make(map[string]chan string)
+	}
+	if _, exists := q.Queues[uid][dataMd5]; !exists {
+		q.Queues[uid][dataMd5] = make(chan string, 1)
+	}
+	select {
+	case <-q.Queues[uid][dataMd5]:
+	default:
+	}
+	q.Queues[uid][dataMd5] <- rawData
+}
+
+func (q *Socks5Queue) GetOrCreateQueue(uid string, dataMd5 string) chan string {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
+	if realUID, exists := connection.GlobalUIDMapper.GetRealUID(uid); exists {
+		uid = realUID
+	}
+
+	if q.Queues[uid] == nil {
+		q.Queues[uid] = make(map[string]chan string)
+	}
+	if _, exists := q.Queues[uid][dataMd5]; !exists {
+		q.Queues[uid][dataMd5] = make(chan string, 1)
+	}
+	return q.Queues[uid][dataMd5]
 }
