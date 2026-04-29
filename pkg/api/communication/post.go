@@ -2,7 +2,7 @@ package communication
 
 import (
 	"Rshell/pkg/command"
-	"Rshell/pkg/config"
+	"Rshell/pkg/protocol"
 	"Rshell/pkg/database"
 	"Rshell/pkg/encrypt"
 	"Rshell/pkg/interactive"
