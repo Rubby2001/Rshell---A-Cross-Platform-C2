@@ -116,25 +116,22 @@ func ListListener(c *gin.Context) {
 	response.OK(c, listeners)
 }
 
-// OpenListener 开启监听器
-func OpenListener(c *gin.Context) {
-	handleListenerStatus(c, "open")
-}
+// UpdateListenerStatus 统一的监听器状态处理
+func UpdateListenerStatus(c *gin.Context) {
+	var body struct {
+		Action string `json:"action"` // "open" or "close"
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
-// CloseListener 关闭监听器
-func CloseListener(c *gin.Context) {
-	handleListenerStatus(c, "close")
-}
-
-// handleListenerStatus 统一的监听器状态处理
-func handleListenerStatus(c *gin.Context, action string) {
 	addr := c.Param("addr")
 	if addr == "" {
 		response.BadRequest(c, "listenAddress is required")
 		return
 	}
 
-	// 查询监听器配置
 	var lis database.Listener
 	if _, err := database.Engine.Where("listen_address = ?", addr).Get(&lis); err != nil {
 		logger.Error("Failed to query listener:", err)
@@ -142,44 +139,29 @@ func handleListenerStatus(c *gin.Context, action string) {
 		return
 	}
 
-	if action == "open" {
-		// 检查是否已在运行
+	if body.Action == "open" {
 		if instance, exists := getServerInstance(addr); exists && instance.IsRunning {
 			response.BadRequest(c, "Listener is already running")
 			return
 		}
 		if lis.Type != "oss" {
-			// 检查端口是否可用
 			if !isPortAvailable(addr) {
 				response.BadRequest(c, "Port is not available")
 				return
 			}
 		}
-
-		// 启动监听器
 		if err := startListener(lis.Type, lis.ListenAddress); err != nil {
 			response.BadRequest(c, fmt.Sprintf("Failed to start listener: %v", err))
 			return
 		}
-
-		// 更新数据库状态
-		if _, err := database.Engine.Where("listen_address = ?", lis.ListenAddress).Update(&database.Listener{Status: 1}); err != nil {
-			logger.Error("Failed to update listener status:", err)
-		}
-
+		database.Engine.Where("listen_address = ?", lis.ListenAddress).Update(&database.Listener{Status: 1})
 		response.OK(c, "Listener opened successfully")
 	} else {
-		// 停止监听器
 		if err := stopListener(lis.Type, lis.ListenAddress); err != nil {
 			response.BadRequest(c, fmt.Sprintf("Failed to stop listener: %v", err))
 			return
 		}
-
-		// 更新数据库状态
-		if _, err := database.Engine.Where("listen_address = ?", lis.ListenAddress).Update(&database.Listener{Status: 2}); err != nil {
-			logger.Error("Failed to update listener status:", err)
-		}
-
+		database.Engine.Where("listen_address = ?", lis.ListenAddress).Update(&database.Listener{Status: 2})
 		response.OK(c, "Listener closed successfully")
 	}
 }

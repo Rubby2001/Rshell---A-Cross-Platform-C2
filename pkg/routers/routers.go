@@ -103,8 +103,7 @@ func NewRouter(embedFS embed.FS, staticFs fs.FS) *gin.Engine {
 	{
 		listeners.POST("", api.AddListener)
 		listeners.GET("", api.ListListener)
-		listeners.PATCH("/:addr/status", api.OpenListener)
-		listeners.PATCH("/:addr/status", api.CloseListener)
+		listeners.PATCH("/:addr/status", api.UpdateListenerStatus)
 		listeners.DELETE("/:addr", api.DeleteListener)
 	}
 
@@ -113,8 +112,7 @@ func NewRouter(embedFS embed.FS, staticFs fs.FS) *gin.Engine {
 	{
 		webDelivery.GET("", api.ListWebDelivery)
 		webDelivery.POST("", api.StartWebDelivery)
-		webDelivery.PATCH("/:port/status", api.CloseWebDelivery)
-		webDelivery.PATCH("/:port/status", api.OpenWebDelivery)
+		webDelivery.PATCH("/:port/status", api.UpdateWebDeliveryStatus)
 		webDelivery.DELETE("/:port", api.DeleteWebDelivery)
 	}
 
