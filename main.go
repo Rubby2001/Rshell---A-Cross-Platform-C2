@@ -20,13 +20,11 @@ import (
 	"crypto/tls"
 	"embed"
 	"flag"
-	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
-	"time"
 )
 
 //go:embed dist
@@ -71,36 +69,13 @@ func main() {
 	addr := "0.0.0.0:" + strconv.Itoa(*bindPort)
 	logger.Info("Listening on port " + strconv.Itoa(*bindPort))
 
-	// HTTP→HTTPS redirect server
-	redirectServer := &http.Server{
-		Addr: "0.0.0.0:" + strconv.Itoa(*bindPort-1),
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			target := fmt.Sprintf("https://%s%s", r.Host, r.URL.RequestURI())
-			http.Redirect(w, r, target, http.StatusFound)
-		}),
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
-
 	var err error
 	switch {
 	case *certPath != "" && *keyPath != "":
 		logger.Info("TLS mode: using custom certificate")
-		logger.Info("HTTP redirect on port " + strconv.Itoa(*bindPort-1))
-		go func() {
-			if redirectErr := redirectServer.ListenAndServe(); redirectErr != nil && redirectErr != http.ErrServerClosed {
-				logger.Error("Redirect server error: " + redirectErr.Error())
-			}
-		}()
 		err = r.RunTLS(addr, *certPath, *keyPath)
 	case *enableTLS:
 		logger.Info("TLS mode: using self-signed certificate")
-		logger.Info("HTTP redirect on port " + strconv.Itoa(*bindPort-1))
-		go func() {
-			if redirectErr := redirectServer.ListenAndServe(); redirectErr != nil && redirectErr != http.ErrServerClosed {
-				logger.Error("Redirect server error: " + redirectErr.Error())
-			}
-		}()
 		certPEM, keyPEM, genErr := cert.GenerateSelfSignedCert()
 		if genErr != nil {
 			logger.Error("Failed to generate self-signed cert: " + genErr.Error())
