@@ -17,11 +17,28 @@ import (
 var WebDeliveryServer = make(map[string]*http.Server)
 var Mutex sync.Mutex
 
+// @Summary List all web delivery configurations
+// @Tags WebDelivery
+// @Accept json
+// @Produce json
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/webdelivery [get]
+// @Security BearerAuth
 func ListWebDelivery(c *gin.Context) {
 	var webs []database.WebDelivery
 	database.Engine.Find(&webs)
 	response.OK(c, webs)
 }
+// @Summary Start a new web delivery server
+// @Tags WebDelivery
+// @Accept json
+// @Produce json
+// @Param body body object{listener=string,os=string,arch=string,port=string,filename=string,pass=string} true "Web delivery config"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/webdelivery [post]
+// @Security BearerAuth
 func StartWebDelivery(c *gin.Context) {
 	var web struct {
 		Listener string `json:"listener"`
@@ -160,6 +177,16 @@ func StartWebDelivery(c *gin.Context) {
 	response.OK(c, nil)
 }
 // UpdateWebDeliveryStatus 统一的 WebDelivery 状态处理
+// @Summary Update web delivery server status (open/close)
+// @Tags WebDelivery
+// @Accept json
+// @Produce json
+// @Param port path string true "Port"
+// @Param body body object{action=string} true "Action (open or close)"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/webdelivery/{port}/status [patch]
+// @Security BearerAuth
 func UpdateWebDeliveryStatus(c *gin.Context) {
 	var body struct {
 		Action string `json:"action"` // "open" or "close"
@@ -279,6 +306,15 @@ func UpdateWebDeliveryStatus(c *gin.Context) {
 	}
 }
 
+// @Summary Delete a web delivery server
+// @Tags WebDelivery
+// @Accept json
+// @Produce json
+// @Param port path string true "Port"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/webdelivery/{port} [delete]
+// @Security BearerAuth
 func DeleteWebDelivery(c *gin.Context) {
 	port := c.Param("port")
 	if port == "" {

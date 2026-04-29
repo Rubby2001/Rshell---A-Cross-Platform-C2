@@ -116,6 +116,16 @@ import (
 //go:embed stageshellcode/*
 var embeddedStager embed.FS // 嵌入 server 文件夹
 
+// StageShellCodeGen generate stage shellcode
+// @Summary Generate stage shellcode
+// @Tags Shellcode
+// @Accept json
+// @Produce octet-stream
+// @Param body body object true "{listener: listener URL, port: port, format: output format (exe/bin/hex/c)}"
+// @Success 200 {file} binary "shellcode payload"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/shellcode/stage [post]
+// @Security BearerAuth
 func StageShellCodeGen(c *gin.Context) {
 	var shellcode struct {
 		Listener string `json:"listener"`

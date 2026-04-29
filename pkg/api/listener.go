@@ -52,6 +52,15 @@ var (
 )
 
 // AddListener 添加监听器
+// @Summary Add a new listener
+// @Tags Listeners
+// @Accept json
+// @Produce json
+// @Param body body object{type=string,listenAddress=string,connectAddress=string} true "Listener configuration"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/listeners [post]
+// @Security BearerAuth
 func AddListener(c *gin.Context) {
 	var listener struct {
 		Type           string `json:"type"`
@@ -110,6 +119,14 @@ func AddListener(c *gin.Context) {
 }
 
 // ListListener 列出监听器
+// @Summary List all listeners
+// @Tags Listeners
+// @Accept json
+// @Produce json
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/listeners [get]
+// @Security BearerAuth
 func ListListener(c *gin.Context) {
 	var listeners []database.Listener
 	database.Engine.Find(&listeners)
@@ -117,6 +134,16 @@ func ListListener(c *gin.Context) {
 }
 
 // UpdateListenerStatus 统一的监听器状态处理
+// @Summary Update listener status (open/close)
+// @Tags Listeners
+// @Accept json
+// @Produce json
+// @Param addr path string true "Listener address"
+// @Param body body object{action=string} true "Action: open or close"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/listeners/{addr}/status [patch]
+// @Security BearerAuth
 func UpdateListenerStatus(c *gin.Context) {
 	var body struct {
 		Action string `json:"action"` // "open" or "close"
@@ -167,6 +194,15 @@ func UpdateListenerStatus(c *gin.Context) {
 }
 
 // DeleteListener 删除监听器
+// @Summary Delete a listener
+// @Tags Listeners
+// @Accept json
+// @Produce json
+// @Param addr path string true "Listener address"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/listeners/{addr} [delete]
+// @Security BearerAuth
 func DeleteListener(c *gin.Context) {
 	addr := c.Param("addr")
 	if addr == "" {

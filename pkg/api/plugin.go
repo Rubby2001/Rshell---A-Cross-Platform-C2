@@ -17,6 +17,19 @@ import (
 )
 
 // AddPlugin 添加插件
+// @Summary Upload a new plugin
+// @Tags Plugins
+// @Accept multipart/form-data
+// @Produce json
+// @Param name formData string true "Plugin name"
+// @Param os formData string true "Operating system (windows/linux)"
+// @Param type formData string true "Plugin type (execute-assembly/inline-bin/shellcode-inject/inline-execute/script)"
+// @Param file formData file true "Plugin file"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Failure 500 {object} object "internal server error"
+// @Router /api/v1/plugins [post]
+// @Security BearerAuth
 func AddPlugin(c *gin.Context) {
 	name := c.PostForm("name")
 	osType := c.PostForm("os")       // windows or linux
@@ -66,6 +79,14 @@ func AddPlugin(c *gin.Context) {
 }
 
 // ListPlugins 列出插件
+// @Summary List all plugins
+// @Tags Plugins
+// @Accept json
+// @Produce json
+// @Success 200 {object} object "success"
+// @Failure 500 {object} object "internal server error"
+// @Router /api/v1/plugins [get]
+// @Security BearerAuth
 func ListPlugins(c *gin.Context) {
 	var plugins []database.Plugin
 	err := database.Engine.Find(&plugins)
@@ -77,6 +98,17 @@ func ListPlugins(c *gin.Context) {
 }
 
 // DeletePlugin 删除插件
+// @Summary Delete a plugin
+// @Tags Plugins
+// @Accept json
+// @Produce json
+// @Param id path int true "Plugin ID"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Failure 404 {object} object "not found"
+// @Failure 500 {object} object "internal server error"
+// @Router /api/v1/plugins/{id} [delete]
+// @Security BearerAuth
 func DeletePlugin(c *gin.Context) {
 	idStr := c.Param("id")
 	id := parseInt64(idStr)
@@ -106,6 +138,18 @@ func DeletePlugin(c *gin.Context) {
 }
 
 // ExecutePlugin 执行插件
+// @Summary Execute a plugin on a client
+// @Tags Plugins
+// @Accept json
+// @Produce json
+// @Param id path int true "Plugin ID"
+// @Param body body object true "{uid: client uid, args: arguments}"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Failure 404 {object} object "not found"
+// @Failure 500 {object} object "internal server error"
+// @Router /api/v1/plugins/{id}/execute [post]
+// @Security BearerAuth
 func ExecutePlugin(c *gin.Context) {
 	idStr := c.Param("id")
 	id := parseInt64(idStr)

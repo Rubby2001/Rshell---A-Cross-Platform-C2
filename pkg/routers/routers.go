@@ -2,8 +2,9 @@ package routers
 
 import (
 	"Rshell/pkg/api"
-	"Rshell/pkg/middlewares"
 	"Rshell/pkg/mcp"
+	"Rshell/pkg/middlewares"
+	"Rshell/pkg/swagger"
 	"embed"
 	"html/template"
 	"io/fs"
@@ -165,6 +166,9 @@ func NewRouter(embedFS embed.FS, staticFs fs.FS) *gin.Engine {
 		mcpGroup.GET("/sse", mcp.HandleSSE)
 		mcpGroup.POST("/message", mcp.HandleMessage)
 	}
+
+	// 注册 Swagger UI（仅开发模式）
+	swagger.Register(r)
 
 	mcp.GlobalEngine = r
 

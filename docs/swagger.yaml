@@ -4,7 +4,1478 @@ info:
   description: Cross-platform C2 framework RESTful API
   title: RShell API
   version: "1.0"
-paths: {}
+paths:
+  /api/v1/auth/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '{username: string, password: string}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success with token
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            type: object
+      summary: User login
+      tags:
+      - Auth
+  /api/v1/auth/logout:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: User logout
+      tags:
+      - Auth
+  /api/v1/auth/password:
+    put:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Old password
+        in: formData
+        name: old_password
+        required: true
+        type: string
+      - description: New password
+        in: formData
+        name: new_password
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "500":
+          description: internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Change user password
+      tags:
+      - Auth
+  /api/v1/clients:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get all connected clients
+      tags:
+      - Clients
+  /api/v1/clients/{uid}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Disconnect and remove a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/color:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Color value
+        in: body
+        name: color
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Edit client display color
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/downloads:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get download status for a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/downloads/fetch:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: File path to fetch
+        in: body
+        name: filePath
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: File content
+          schema:
+            type: file
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "404":
+          description: file not found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Fetch a downloaded file from the server
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/drives:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "408":
+          description: timeout
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List drives on a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/execute:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Binary file to execute
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: Arguments
+        in: formData
+        name: args
+        type: string
+      - description: Execution mode (execute-assembly|inline-bin|shellcode-inject|inline-execute)
+        in: formData
+        name: mode
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Execute binary on a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/execute-linux-script:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Script file to execute
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: Arguments
+        in: formData
+        name: args
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Execute Linux script on a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/files:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: File path to delete
+        in: query
+        name: filePath
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "408":
+          description: timeout
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a file on a client
+      tags:
+      - Clients
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Directory path to browse
+        in: query
+        name: dirPath
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "408":
+          description: timeout
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Browse files on a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/files/content:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: File path to read
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "408":
+          description: timeout
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Fetch content of a file on a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/files/directories:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Directory path to create
+        in: body
+        name: dirPath
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "408":
+          description: timeout
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a directory on a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/files/download:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: File path to download
+        in: body
+        name: filePath
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Request a file download from a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/files/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: File to upload
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: Upload destination path
+        in: formData
+        name: uploadPath
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Upload a file to a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/note:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get note for a client
+      tags:
+      - Clients
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Note text
+        in: body
+        name: note
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Add a note to a client
+      tags:
+      - Clients
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Note content to save
+        in: body
+        name: noteContent
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Save note for a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/processes:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "408":
+          description: timeout
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get process list from a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/processes/{pid}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Process ID
+        in: path
+        name: pid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Kill a process on a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/shell/commands:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Command to execute
+        in: body
+        name: command
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Send a shell command to a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/shell/output:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get shell output from a client
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/sleep:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Sleep interval in seconds
+        in: body
+        name: sleep
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Edit client sleep interval
+      tags:
+      - Clients
+  /api/v1/clients/{uid}/socks5:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: '{Socks5port: port, UserName: username, Password: password}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete SOCKS5 proxy
+      tags:
+      - SOCKS5
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List SOCKS5 proxies
+      tags:
+      - SOCKS5
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: '{Socks5port: port, UserName: username, Password: password}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Start SOCKS5 proxy
+      tags:
+      - SOCKS5
+  /api/v1/clients/{uid}/socks5/close:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: '{Socks5port: port, UserName: username, Password: password}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Close SOCKS5 proxy
+      tags:
+      - SOCKS5
+  /api/v1/clients/{uid}/socks5/open:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: '{Socks5port: port, UserName: username, Password: password}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Open SOCKS5 proxy
+      tags:
+      - SOCKS5
+  /api/v1/forward-connection:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '{type: connection type (websocket/tcp), address: target address,
+          proxy: SOCKS5 proxy}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "500":
+          description: internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Establish forward connection
+      tags:
+      - Forward
+  /api/v1/generators/servers:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '{osType: OS type, archType: architecture, listener: listener
+          URL, pass: password}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: server binary
+          schema:
+            type: file
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Generate server binary
+      tags:
+      - Generators
+  /api/v1/listeners:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all listeners
+      tags:
+      - Listeners
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Listener configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            connectAddress:
+              type: string
+            listenAddress:
+              type: string
+            type:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Add a new listener
+      tags:
+      - Listeners
+  /api/v1/listeners/{addr}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Listener address
+        in: path
+        name: addr
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a listener
+      tags:
+      - Listeners
+  /api/v1/listeners/{addr}/status:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Listener address
+        in: path
+        name: addr
+        required: true
+        type: string
+      - description: 'Action: open or close'
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            action:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update listener status (open/close)
+      tags:
+      - Listeners
+  /api/v1/plugins:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "500":
+          description: internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all plugins
+      tags:
+      - Plugins
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Plugin name
+        in: formData
+        name: name
+        required: true
+        type: string
+      - description: Operating system (windows/linux)
+        in: formData
+        name: os
+        required: true
+        type: string
+      - description: Plugin type (execute-assembly/inline-bin/shellcode-inject/inline-execute/script)
+        in: formData
+        name: type
+        required: true
+        type: string
+      - description: Plugin file
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "500":
+          description: internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Upload a new plugin
+      tags:
+      - Plugins
+  /api/v1/plugins/{id}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Plugin ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "404":
+          description: not found
+          schema:
+            type: object
+        "500":
+          description: internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a plugin
+      tags:
+      - Plugins
+  /api/v1/plugins/{id}/execute:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Plugin ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: '{uid: client uid, args: arguments}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "404":
+          description: not found
+          schema:
+            type: object
+        "500":
+          description: internal server error
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Execute a plugin on a client
+      tags:
+      - Plugins
+  /api/v1/settings:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: 'Array of {name: setting name, value: setting value}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Edit settings
+      tags:
+      - Settings
+  /api/v1/shellcode/stage:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '{listener: listener URL, port: port, format: output format (exe/bin/hex/c)}'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: shellcode payload
+          schema:
+            type: file
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Generate stage shellcode
+      tags:
+      - Shellcode
+  /api/v1/webdelivery:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all web delivery configurations
+      tags:
+      - WebDelivery
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Web delivery config
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            arch:
+              type: string
+            filename:
+              type: string
+            listener:
+              type: string
+            os:
+              type: string
+            pass:
+              type: string
+            port:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Start a new web delivery server
+      tags:
+      - WebDelivery
+  /api/v1/webdelivery/{port}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Port
+        in: path
+        name: port
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a web delivery server
+      tags:
+      - WebDelivery
+  /api/v1/webdelivery/{port}/status:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Port
+        in: path
+        name: port
+        required: true
+        type: string
+      - description: Action (open or close)
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            action:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            type: object
+        "400":
+          description: bad request
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update web delivery server status (open/close)
+      tags:
+      - WebDelivery
+  /api/v1/ws/interactive/{uid}/{sessionId}:
+    get:
+      parameters:
+      - description: Client UID
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      - description: Authentication token
+        in: query
+        name: auth
+        type: string
+      produces:
+      - application/json
+      responses:
+        "101":
+          description: Switching Protocols
+        "400":
+          description: bad request
+          schema:
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            type: object
+      summary: Interactive shell WebSocket
+      tags:
+      - WebSocket
 securityDefinitions:
   BearerAuth:
     in: header

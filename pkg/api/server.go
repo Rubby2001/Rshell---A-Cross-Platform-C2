@@ -15,6 +15,16 @@ import (
 //go:embed server/*
 var embeddedFiles embed.FS // 嵌入 server 文件夹
 
+// GenServer generate a server binary
+// @Summary Generate server binary
+// @Tags Generators
+// @Accept json
+// @Produce octet-stream
+// @Param body body object true "{osType: OS type, archType: architecture, listener: listener URL, pass: password}"
+// @Success 200 {file} binary "server binary"
+// @Failure 400 {object} object "bad request"
+// @Router /api/v1/generators/servers [post]
+// @Security BearerAuth
 func GenServer(c *gin.Context) {
 	var serverBody struct {
 		OsType   string `json:"osType"`

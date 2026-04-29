@@ -85,7 +85,18 @@ func validateWebSocketToken(tokenString string) (*common.Claims, error) {
 	return claims, nil
 }
 
-// 修改InteractiveShell函数，添加认证逻辑
+// InteractiveShell provides interactive shell via WebSocket
+// @Summary Interactive shell WebSocket
+// @Tags WebSocket
+// @Produce json
+// @Param uid path string true "Client UID"
+// @Param sessionId path string true "Session ID"
+// @Param auth query string false "Authentication token"
+// @Success 101 "Switching Protocols"
+// @Failure 400 {object} object "bad request"
+// @Failure 401 {object} object "unauthorized"
+// @Failure 403 {object} object "forbidden"
+// @Router /api/v1/ws/interactive/{uid}/{sessionId} [get]
 func InteractiveShell(c *gin.Context) {
 	uid := c.Param("uid")
 	sessionID := c.Param("sessionId")

@@ -22,6 +22,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ForwardConnect establish a forward connection
+// @Summary Establish forward connection
+// @Tags Forward
+// @Accept json
+// @Produce json
+// @Param body body object true "{type: connection type (websocket/tcp), address: target address, proxy: SOCKS5 proxy}"
+// @Success 200 {object} object "success"
+// @Failure 400 {object} object "bad request"
+// @Failure 500 {object} object "internal server error"
+// @Router /api/v1/forward-connection [post]
+// @Security BearerAuth
 func ForwardConnect(c *gin.Context) {
 	var forward struct {
 		Type    string `json:"type"`
