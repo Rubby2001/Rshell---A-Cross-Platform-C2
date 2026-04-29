@@ -5,6 +5,7 @@ import (
 	"Rshell/pkg/common"
 	"Rshell/pkg/interactive" // 使用新的interactive包
 	"Rshell/pkg/logger"
+	"Rshell/pkg/response"
 	"Rshell/pkg/sendcommand"
 	"Rshell/pkg/utils"
 	"bytes"
@@ -47,30 +48,25 @@ func GetWebSocketAuthToken(c *gin.Context) {
 	// 从上下文获取用户名（已经在AuthMiddleware中设置）
 	username, exists := c.Get("username")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户未认证"})
+		response.Unauthorized(c)
 		return
 	}
 
 	uid := c.Param("uid")
 	usernameStr, ok := username.(string)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "用户信息错误"})
+		response.InternalError(c)
 		return
 	}
 
 	// 生成一个短期有效的WebSocket专用token
 	tokenString, err := common.GenerateJWTWithExtras(usernameStr, uid, "websocket", 5*time.Minute)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成token失败"})
+		response.InternalError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"token":      tokenString,
-		"expires_in": 300,
-		"uid":        uid,
-		"username":   usernameStr,
-	})
+	response.OK(c, gin.H{"token": tokenString, "expires_in": 300, "uid": uid, "username": usernameStr})
 }
 
 // 验证WebSocket Token的函数
@@ -95,7 +91,7 @@ func InteractiveShell(c *gin.Context) {
 	sessionID := c.Param("sessionId")
 
 	if uid == "" || sessionID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "uid and sessionId are required"})
+		response.BadRequest(c, "uid and sessionId are required")
 		return
 	}
 
@@ -116,7 +112,7 @@ func InteractiveShell(c *gin.Context) {
 	}
 
 	if token == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "认证token缺失"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -125,21 +121,21 @@ func InteractiveShell(c *gin.Context) {
 	if err != nil {
 		// 更详细的错误信息
 		logger.Error("Token验证失败: %v, token: ", err, token[:min(len(token), 20)]+"...")
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "认证token无效或已过期"})
+		response.Unauthorized(c)
 		return
 	}
 
 	// 验证uid是否匹配
 	if claims.UID != uid {
 		logger.Error("UID不匹配: token UID=", claims.UID, " request UID=", uid)
-		c.JSON(http.StatusForbidden, gin.H{"error": "无权限访问此资源"})
+		response.Forbidden(c)
 		return
 	}
 
 	// 验证token是否是WebSocket专用的
 	if claims.Purpose != "websocket" {
 		logger.Error("Token用途不正确: ", claims.Purpose)
-		c.JSON(http.StatusForbidden, gin.H{"error": "token类型不正确"})
+		response.Forbidden(c)
 		return
 	}
 

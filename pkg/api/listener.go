@@ -8,6 +8,7 @@ import (
 	"Rshell/pkg/connection/websocket"
 	"Rshell/pkg/database"
 	"Rshell/pkg/logger"
+	"Rshell/pkg/response"
 	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -59,25 +60,25 @@ func AddListener(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&listener); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	// 验证监听器类型
 	if !isValidListenerType(listener.Type) {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Invalid listener type"})
+		response.BadRequest(c, "Invalid listener type")
 		return
 	}
 
 	// 检查是否已存在
 	if exists, _ := database.Engine.Where("listen_address = ?", listener.ListenAddress).Exist(&database.Listener{}); exists {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Listener already exists"})
+		response.BadRequest(c, "Listener already exists")
 		return
 	}
 	if listener.Type != "oss" {
 		// 检查端口是否可用
 		if !isPortAvailable(listener.ListenAddress) {
-			c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Port is not available"})
+			response.BadRequest(c, "Port is not available")
 			return
 		}
 	}
@@ -93,7 +94,7 @@ func AddListener(c *gin.Context) {
 
 	if _, err := database.Engine.Insert(listenerRecord); err != nil {
 		logger.Error("Failed to save listener to database:", err)
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Failed to save listener"})
+		response.BadRequest(c, "Failed to save listener")
 		return
 	}
 
@@ -101,18 +102,18 @@ func AddListener(c *gin.Context) {
 	if err := startListener(listener.Type, listener.ListenAddress); err != nil {
 		// 启动失败，更新状态
 		database.Engine.Where("listen_address = ?", listener.ListenAddress).Update(&database.Listener{Status: 2})
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": fmt.Sprintf("Failed to start listener: %v", err)})
+		response.BadRequest(c, fmt.Sprintf("Failed to start listener: %v", err))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": "Listener added and started successfully"})
+	response.OK(c, "Listener added and started successfully")
 }
 
 // ListListener 列出监听器
 func ListListener(c *gin.Context) {
 	var listeners []database.Listener
 	database.Engine.Find(&listeners)
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": listeners})
+	response.OK(c, listeners)
 }
 
 // OpenListener 开启监听器
@@ -122,7 +123,7 @@ func OpenListener(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&listener); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -130,26 +131,26 @@ func OpenListener(c *gin.Context) {
 	var lis database.Listener
 	if _, err := database.Engine.Where("listen_address = ?", listener.ListenAddress).Get(&lis); err != nil {
 		logger.Error("Failed to query listener:", err)
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Listener not found"})
+		response.BadRequest(c, "Listener not found")
 		return
 	}
 
 	// 检查是否已在运行
 	if instance, exists := getServerInstance(listener.ListenAddress); exists && instance.IsRunning {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Listener is already running"})
+		response.BadRequest(c, "Listener is already running")
 		return
 	}
 	if lis.Type != "oss" {
 		// 检查端口是否可用
 		if !isPortAvailable(listener.ListenAddress) {
-			c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Port is not available"})
+			response.BadRequest(c, "Port is not available")
 			return
 		}
 	}
 
 	// 启动监听器
 	if err := startListener(lis.Type, lis.ListenAddress); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": fmt.Sprintf("Failed to start listener: %v", err)})
+		response.BadRequest(c, fmt.Sprintf("Failed to start listener: %v", err))
 		return
 	}
 
@@ -158,7 +159,7 @@ func OpenListener(c *gin.Context) {
 		logger.Error("Failed to update listener status:", err)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": "Listener opened successfully"})
+	response.OK(c, "Listener opened successfully")
 }
 
 // CloseListener 关闭监听器
@@ -168,7 +169,7 @@ func CloseListener(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&listener); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -176,13 +177,13 @@ func CloseListener(c *gin.Context) {
 	var lis database.Listener
 	if _, err := database.Engine.Where("listen_address = ?", listener.ListenAddress).Get(&lis); err != nil {
 		logger.Error("Failed to query listener:", err)
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Listener not found"})
+		response.BadRequest(c, "Listener not found")
 		return
 	}
 
 	// 停止监听器
 	if err := stopListener(lis.Type, lis.ListenAddress); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": fmt.Sprintf("Failed to stop listener: %v", err)})
+		response.BadRequest(c, fmt.Sprintf("Failed to stop listener: %v", err))
 		return
 	}
 
@@ -191,7 +192,7 @@ func CloseListener(c *gin.Context) {
 		logger.Error("Failed to update listener status:", err)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": "Listener closed successfully"})
+	response.OK(c, "Listener closed successfully")
 }
 
 // DeleteListener 删除监听器
@@ -201,7 +202,7 @@ func DeleteListener(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&listener); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -209,7 +210,7 @@ func DeleteListener(c *gin.Context) {
 	var lis database.Listener
 	if _, err := database.Engine.Where("listen_address = ?", listener.ListenAddress).Get(&lis); err != nil {
 		logger.Error("Failed to query listener:", err)
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Listener not found"})
+		response.BadRequest(c, "Listener not found")
 		return
 	}
 
@@ -224,11 +225,11 @@ func DeleteListener(c *gin.Context) {
 	// 从数据库中删除
 	if _, err := database.Engine.Where("listen_address = ?", listener.ListenAddress).Delete(&database.Listener{}); err != nil {
 		logger.Error("Failed to delete listener:", err)
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Failed to delete listener"})
+		response.BadRequest(c, "Failed to delete listener")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": "Listener deleted successfully"})
+	response.OK(c, "Listener deleted successfully")
 }
 
 // startListener 启动监听器

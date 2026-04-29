@@ -4,10 +4,10 @@ import (
 	"Rshell/pkg/database"
 	"Rshell/pkg/logger"
 	"Rshell/pkg/proxy"
+	"Rshell/pkg/response"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"net"
-	"net/http"
 )
 
 func Socks5List(c *gin.Context) {
@@ -15,11 +15,12 @@ func Socks5List(c *gin.Context) {
 		Uid string `form:"uid"`
 	}
 	if err := c.ShouldBindQuery(&socks5Body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	var socks5 []database.Socks5
 	database.Engine.Where("uid = ?", socks5Body.Uid).Find(&socks5)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": socks5})
+	response.OK(c, socks5)
 }
 func Socks5Start(c *gin.Context) {
 	var socks5Body struct {
@@ -29,7 +30,8 @@ func Socks5Start(c *gin.Context) {
 		Password   string `json:"Password"`
 	}
 	if err := c.ShouldBindJSON(&socks5Body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	inUse, err := isPortInUse(socks5Body.Socks5port)
 	if err != nil {
@@ -37,14 +39,14 @@ func Socks5Start(c *gin.Context) {
 		return
 	}
 	if inUse {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": socks5Body.Socks5port + "端口被占用"})
+		response.BadRequest(c, socks5Body.Socks5port+"port already in use")
 		return
 	}
 
 	database.Engine.Insert(&database.Socks5{Type: "socks5", Uid: socks5Body.Uid, Socks5port: socks5Body.Socks5port, UserName: socks5Body.UserName, Password: socks5Body.Password, Status: 1})
 
 	go proxy.StartSocks5Proxy(socks5Body.Socks5port, socks5Body.Uid, socks5Body.UserName, socks5Body.Password)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": "socks5 started"})
+	response.OK(c, "socks5 started")
 }
 func Socks5Open(c *gin.Context) {
 	var socks5Body struct {
@@ -54,19 +56,20 @@ func Socks5Open(c *gin.Context) {
 		Password   string `json:"Password"`
 	}
 	if err := c.ShouldBindJSON(&socks5Body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	inUse, err := isPortInUse(socks5Body.Socks5port)
 	if err != nil {
 		logger.Error("检测端口时发生错误:", socks5Body.Socks5port, err)
 	}
 	if inUse {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": socks5Body.Socks5port + "端口被占用"})
+		response.BadRequest(c, socks5Body.Socks5port+"port already in use")
 		return
 	}
 	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", socks5Body.Uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Update(&database.Socks5{Status: 1})
 	go proxy.StartSocks5Proxy(socks5Body.Socks5port, socks5Body.Uid, socks5Body.UserName, socks5Body.Password)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": "socks5 started"})
+	response.OK(c, "socks5 started")
 }
 func Socks5Close(c *gin.Context) {
 	var socks5Body struct {
@@ -76,7 +79,8 @@ func Socks5Close(c *gin.Context) {
 		Password   string `json:"Password"`
 	}
 	if err := c.ShouldBindJSON(&socks5Body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", socks5Body.Uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Update(&database.Socks5{Status: 2})
 
@@ -86,12 +90,12 @@ func Socks5Close(c *gin.Context) {
 		delete(proxy.Socks5Serve, socks5Body.Socks5port)
 		proxy.MuSocks5Serve.Unlock()
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Socks5 closed failed"})
+			response.BadRequest(c, "socks5 close failed")
 			return
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": "socks5 closed"})
+	response.OK(c, "socks5 closed")
 }
 func Socks5Delete(c *gin.Context) {
 	var socks5Body struct {
@@ -101,7 +105,8 @@ func Socks5Delete(c *gin.Context) {
 		Password   string `json:"Password"`
 	}
 	if err := c.ShouldBindJSON(&socks5Body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	var s database.Socks5
 	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", socks5Body.Uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Get(&s)
@@ -112,13 +117,13 @@ func Socks5Delete(c *gin.Context) {
 			delete(proxy.Socks5Serve, socks5Body.Socks5port)
 			proxy.MuSocks5Serve.Unlock()
 			if err != nil {
-				c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Socks5 closed failed"})
+				response.BadRequest(c, "socks5 close failed")
 				return
 			}
 		}
 	}
 	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", socks5Body.Uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Delete(&database.Socks5{})
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": "socks5 deleted"})
+	response.OK(c, "socks5 deleted")
 }
 
 // isPortInUse 检测指定端口是否被占用

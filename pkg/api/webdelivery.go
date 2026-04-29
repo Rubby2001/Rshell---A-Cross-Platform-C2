@@ -5,6 +5,7 @@ import (
 	"Rshell/pkg/encrypt"
 	"Rshell/pkg/godonut"
 	"Rshell/pkg/logger"
+	"Rshell/pkg/response"
 	"bytes"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -19,7 +20,7 @@ var Mutex sync.Mutex
 func ListWebDelivery(c *gin.Context) {
 	var webs []database.WebDelivery
 	database.Engine.Find(&webs)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": webs})
+	response.OK(c, webs)
 }
 func StartWebDelivery(c *gin.Context) {
 	var web struct {
@@ -31,12 +32,12 @@ func StartWebDelivery(c *gin.Context) {
 		Pass     string `json:"pass"`
 	}
 	if err := c.ShouldBindJSON(&web); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": err})
+		response.BadRequest(c, err.Error())
 		return
 	}
 	var w database.WebDelivery
 	if exist, _ := database.Engine.Where("listening_port = ?", web.Port).Exist(&w); exist {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": web.Port + "端口已被配置"})
+		response.BadRequest(c, web.Port+"端口已被配置")
 		return
 	}
 
@@ -45,7 +46,7 @@ func StartWebDelivery(c *gin.Context) {
 		logger.Error("检测端口 %s 时发生错误: %v\n", web.Port, err)
 	}
 	if inUse {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": web.Port + "端口被占用"})
+		response.BadRequest(c, web.Port+"端口被占用")
 		return
 	}
 
@@ -59,13 +60,13 @@ func StartWebDelivery(c *gin.Context) {
 	// 查找符合条件的文件
 	binaryFileName := findBinary(listenerType, osType, archType)
 	if binaryFileName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到匹配的服务端文件"})
+		response.BadRequest(c, "未找到匹配的服务端文件")
 		return
 	}
 	// 从嵌入的文件系统中读取对应文件内容
 	binaryData, err := embeddedFiles.ReadFile("server/" + listenerType + "/" + binaryFileName)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "读取文件失败"})
+		response.BadRequest(c, "读取文件失败")
 		return
 	}
 	var modifiedData []byte
@@ -114,7 +115,7 @@ func StartWebDelivery(c *gin.Context) {
 	if web.OS == "windows" {
 		shellcode, err := godonut.GenShellcode(modifiedData, web.Pass, web.Arch)
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"status": 400, "data": "shellcode生成失败"})
+			response.BadRequest(c, "shellcode生成失败")
 			return
 		}
 		mux.HandleFunc("/"+web.Filename+".woff", func(w http.ResponseWriter, r *http.Request) {
@@ -156,14 +157,14 @@ func StartWebDelivery(c *gin.Context) {
 		}
 	}()
 
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }
 func CloseWebDelivery(c *gin.Context) {
 	var web struct {
 		Port string `json:"port"`
 	}
 	if err := c.ShouldBindJSON(&web); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusBadRequest, "data": err})
+		response.BadRequest(c, err.Error())
 		return
 	}
 	err := WebDeliveryServer[web.Port].Close()
@@ -172,10 +173,10 @@ func CloseWebDelivery(c *gin.Context) {
 	Mutex.Unlock()
 	database.Engine.Where("listening_port = ?", web.Port).Update(&database.WebDelivery{Status: 2})
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Listener closed failed"})
+		response.BadRequest(c, "Listener closed failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }
 
 func OpenWebDelivery(c *gin.Context) {
@@ -183,14 +184,15 @@ func OpenWebDelivery(c *gin.Context) {
 		Port string `json:"port"`
 	}
 	if err := c.ShouldBindJSON(&web); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusBadRequest, "data": err})
+		response.BadRequest(c, err.Error())
+		return
 	}
 	inUse, err := isPortInUse(web.Port)
 	if err != nil {
 		logger.Error("检测端口 %s 时发生错误: %v\n", web.Port, err)
 	}
 	if inUse {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": web.Port + "端口被占用"})
+		response.BadRequest(c, web.Port+"端口被占用")
 		return
 	}
 	var webdelivery database.WebDelivery
@@ -206,12 +208,14 @@ func OpenWebDelivery(c *gin.Context) {
 	// 查找符合条件的文件
 	binaryFileName := findBinary(listenerType, osType, archType)
 	if binaryFileName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到匹配的服务端文件"})
+		response.BadRequest(c, "未找到匹配的服务端文件")
+		return
 	}
 	// 从嵌入的文件系统中读取对应文件内容
 	binaryData, err := embeddedFiles.ReadFile("server/" + listenerType + "/" + binaryFileName)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "读取文件失败"})
+		response.BadRequest(c, "读取文件失败")
+		return
 	}
 
 	var modifiedData []byte
@@ -261,7 +265,7 @@ func OpenWebDelivery(c *gin.Context) {
 	if wd.OS == "windows" {
 		shellcode, err := godonut.GenShellcode(modifiedData, wd.Pass, wd.Arch)
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"status": 400, "data": "shellcode生成失败"})
+			response.BadRequest(c, "shellcode生成失败")
 		}
 		mux.HandleFunc("/"+wd.FileName+".woff", func(w http.ResponseWriter, r *http.Request) {
 			// 设置响应头，指定内容类型为二进制流
@@ -291,7 +295,7 @@ func OpenWebDelivery(c *gin.Context) {
 		}
 	}()
 
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 
 }
 
@@ -300,7 +304,8 @@ func DeleteWebDelivery(c *gin.Context) {
 		Port string `json:"port"`
 	}
 	if err := c.ShouldBindJSON(&web); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusBadRequest, "data": err})
+		response.BadRequest(c, err.Error())
+		return
 	}
 	var webdelivery database.WebDelivery
 	database.Engine.Where("listening_port = ?", web.Port).Get(&webdelivery)
@@ -311,10 +316,10 @@ func DeleteWebDelivery(c *gin.Context) {
 		Mutex.Unlock()
 		database.Engine.Where("listening_port = ?", web.Port).Delete(&database.WebDelivery{})
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Listener closed failed"})
+			response.BadRequest(c, "Listener closed failed")
 			return
 		}
 	}
 	database.Engine.Where("listening_port = ?", web.Port).Delete(&database.WebDelivery{})
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }

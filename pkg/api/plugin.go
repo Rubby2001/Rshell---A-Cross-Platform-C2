@@ -4,11 +4,10 @@ import (
 	"Rshell/pkg/command"
 	"Rshell/pkg/database"
 	"Rshell/pkg/godonut"
+	"Rshell/pkg/response"
 	"Rshell/pkg/sendcommand"
 	"Rshell/pkg/utils"
 	"encoding/binary"
-	"io/ioutil"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,13 +23,13 @@ func AddPlugin(c *gin.Context) {
 
 	file, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "No file uploaded"})
+		response.BadRequest(c, "No file uploaded")
 		return
 	}
 
 	execPath, err := os.Executable()
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 500, "data": "Server error"})
+		response.InternalError(c)
 		return
 	}
 
@@ -43,7 +42,7 @@ func AddPlugin(c *gin.Context) {
 	filePath := filepath.Join(extDir, fileName)
 
 	if err := c.SaveUploadedFile(file, filePath); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 500, "data": "Failed to save file"})
+		response.InternalError(c)
 		return
 	}
 
@@ -58,11 +57,11 @@ func AddPlugin(c *gin.Context) {
 
 	_, err = database.Engine.Insert(&plugin)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 500, "data": "Failed to save to database"})
+		response.InternalError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": "success"})
+	response.OK(c, "success")
 }
 
 // ListPlugins 列出插件
@@ -70,10 +69,10 @@ func ListPlugins(c *gin.Context) {
 	var plugins []database.Plugin
 	err := database.Engine.Find(&plugins)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 500, "data": "Failed to retrieve plugins"})
+		response.InternalError(c)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": plugins})
+	response.OK(c, plugins)
 }
 
 // DeletePlugin 删除插件
@@ -82,14 +81,14 @@ func DeletePlugin(c *gin.Context) {
 		Id int64 `json:"id"`
 	}
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Invalid request"})
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
 	var plugin database.Plugin
 	has, err := database.Engine.ID(req.Id).Get(&plugin)
 	if err != nil || !has {
-		c.JSON(http.StatusOK, gin.H{"status": 404, "data": "Plugin not found"})
+		response.NotFound(c, "Plugin not found")
 		return
 	}
 
@@ -99,11 +98,11 @@ func DeletePlugin(c *gin.Context) {
 	// 从数据库删除
 	_, err = database.Engine.ID(req.Id).Delete(&database.Plugin{})
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 500, "data": "Failed to delete from database"})
+		response.InternalError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": "success"})
+	response.OK(c, "success")
 }
 
 // ExecutePlugin 执行插件
@@ -114,20 +113,20 @@ func ExecutePlugin(c *gin.Context) {
 		Args string `json:"args"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Invalid JSON"})
+		response.BadRequest(c, "Invalid JSON")
 		return
 	}
 
 	var plugin database.Plugin
 	has, err := database.Engine.ID(req.Id).Get(&plugin)
 	if err != nil || !has {
-		c.JSON(http.StatusOK, gin.H{"status": 404, "data": "Plugin not found"})
+		response.NotFound(c, "Plugin not found")
 		return
 	}
 
-	fileBytes, err := ioutil.ReadFile(plugin.FilePath)
+	fileBytes, err := os.ReadFile(plugin.FilePath)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 500, "data": "Failed to read plugin file"})
+		response.InternalError(c)
 		return
 	}
 
@@ -154,7 +153,7 @@ func ExecutePlugin(c *gin.Context) {
 
 			payload, err := godonut.GenShellcode(fileBytes, req.Args, u.Arch)
 			if err != nil {
-				c.JSON(http.StatusOK, gin.H{"status": 400, "data": "Unable to generate shellcode"})
+				response.BadRequest(c, "Unable to generate shellcode")
 				return
 			}
 			cmdTypeBytes := make([]byte, 4)
@@ -192,5 +191,5 @@ func ExecutePlugin(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": "Plugin executed"})
+	response.OK(c, "Plugin executed")
 }

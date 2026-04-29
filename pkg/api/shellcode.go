@@ -3,6 +3,7 @@ package api
 import (
 	"Rshell/pkg/database"
 	"Rshell/pkg/godonut"
+	"Rshell/pkg/response"
 	"bytes"
 	"embed"
 	"encoding/hex"
@@ -122,7 +123,8 @@ func StageShellCodeGen(c *gin.Context) {
 		Format   string `json:"format"`
 	}
 	if err := c.ShouldBind(&shellcode); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": err.Error()})
+		response.BadRequest(c, err.Error())
+		return
 	}
 
 	var wd database.WebDelivery
@@ -138,7 +140,8 @@ func StageShellCodeGen(c *gin.Context) {
 	}
 	binaryData, err := embeddedStager.ReadFile("stageshellcode/" + binaryFileName)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "读取文件失败"})
+		response.BadRequest(c, "Failed to read file")
+		return
 	}
 
 	var modifiedData []byte
@@ -189,7 +192,7 @@ func StageShellCodeGen(c *gin.Context) {
 		ctype = "text/x-csrc"
 
 	default:
-		c.String(http.StatusBadRequest, "不支持的格式: %s，支持 hex, c, bin", shellcode.Format)
+		response.BadRequest(c, fmt.Sprintf("不支持的格式: %s，支持 hex, c, bin", shellcode.Format))
 		return
 	}
 

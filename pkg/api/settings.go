@@ -2,7 +2,7 @@ package api
 
 import (
 	"Rshell/pkg/database"
-	"net/http"
+	"Rshell/pkg/response"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,11 +15,11 @@ var settings []struct {
 func ListSettings(c *gin.Context) {
 	var settings []database.Settings
 	database.Engine.Find(&settings)
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": settings})
+	response.OK(c, settings)
 }
 func EditSettings(c *gin.Context) {
 	if err := c.BindJSON(&settings); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 	for _, setting := range settings {
@@ -29,5 +29,5 @@ func EditSettings(c *gin.Context) {
 		}
 		database.Engine.Where("name = ?", setting.Name).Update(&data)
 	}
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": "", "msg": "ok"})
+	response.OK(c, nil)
 }

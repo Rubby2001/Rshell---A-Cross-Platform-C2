@@ -4,10 +4,10 @@ import (
 	"Rshell/pkg/database"
 	"Rshell/pkg/encrypt"
 	"Rshell/pkg/logger"
+	"Rshell/pkg/response"
 	"bytes"
 	"embed"
 	"github.com/gin-gonic/gin"
-	"net/http"
 	"strconv"
 	"strings"
 )
@@ -23,7 +23,8 @@ func GenServer(c *gin.Context) {
 		Pass     string `json:"pass"`
 	}
 	if err := c.BindJSON(&serverBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.BadRequest(c, err.Error())
+		return
 	}
 	osType := serverBody.OsType
 	archType := serverBody.ArchType
@@ -35,12 +36,14 @@ func GenServer(c *gin.Context) {
 	// 查找符合条件的文件
 	binaryFileName := findBinary(listenerType, osType, archType)
 	if binaryFileName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到匹配的服务端文件"})
+		response.BadRequest(c, "Binary file not found")
+		return
 	}
 	// 从嵌入的文件系统中读取对应文件内容
 	binaryData, err := embeddedFiles.ReadFile("server/" + listenerType + "/" + binaryFileName)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "读取文件失败"})
+		response.BadRequest(c, "Failed to read file")
+		return
 	}
 
 	var modifiedData []byte
@@ -121,6 +124,6 @@ func ShowListener(c *gin.Context) {
 	for _, listener := range listeners {
 		result = append(result, listener.Type+"://"+listener.ConnectAddress)
 	}
-	c.JSON(http.StatusOK, gin.H{"status": 200, "data": result})
+	response.OK(c, result)
 
 }

@@ -9,7 +9,7 @@ package api
 import (
 	"Rshell/pkg/common"
 	"Rshell/pkg/database"
-	"net/http"
+	"Rshell/pkg/response"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,39 +21,38 @@ func LoginHandler(c *gin.Context) {
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&loginData); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
 
 	var users database.Users
 	has, err := database.Engine.Where("username = ?", loginData.Username).Get(&users)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		response.InternalError(c)
 		return
 	}
 
 	if !has || users.Password != loginData.Password {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		response.Unauthorized(c)
 		return
 	}
 
 	token, err := common.GenerateJWT(loginData.Username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate token"})
+		response.InternalError(c)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{
+	response.OK(c, gin.H{
 		"token":       token,
-		"permissions": 1, // 示例：1表示管理员权限
+		"permissions": 1,
 		"refresh":     "mock-refresh-token",
 		"username":    loginData.Username,
-	}})
+	})
 }
 
 // 注销处理函数
 func LogoutHandler(c *gin.Context) {
-	// 这里可以处理注销逻辑，比如删除 refresh token
-	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "Logged out successfully"})
+	response.OK(c, nil)
 }
 
 // 修改密码处理函数
@@ -63,7 +62,7 @@ func ChangePasswordHandler(c *gin.Context) {
 		NewPassword string `form:"new_password"`
 	}
 	if err := c.ShouldBind(&passwordData); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
 
@@ -73,30 +72,30 @@ func ChangePasswordHandler(c *gin.Context) {
 		var users database.Users
 		has, err := database.Engine.Where("username = ?", username).Get(&users)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+			response.InternalError(c)
 			return
 		}
 		if !has {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "message": "Password changed failed"})
+			response.BadRequest(c, "password changed failed")
 			return
 		}
 		if users.Password == passwordData.OldPassword {
 			users.Password = passwordData.NewPassword
 			affected, err := database.Engine.Where("username = ?", username).Cols("password").Update(&users)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+				response.InternalError(c)
 				return
 			}
 			if affected != 1 {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Password update did not persist"})
+				response.InternalError(c)
 				return
 			}
-			c.JSON(http.StatusOK, gin.H{"code": 200, "message": "Password changed successfully"})
+			response.OK(c, nil)
 		} else {
-			c.JSON(http.StatusOK, gin.H{"code": 400, "message": "Password changed failed"})
+			response.BadRequest(c, "password changed failed")
 		}
 	} else {
-		c.JSON(http.StatusOK, gin.H{"code": 400, "message": "Password changed failed"})
+		response.BadRequest(c, "password changed failed")
 	}
 
 }

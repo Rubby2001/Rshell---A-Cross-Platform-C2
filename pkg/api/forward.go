@@ -12,9 +12,9 @@ import (
 	"Rshell/pkg/connection/tcp"
 	"Rshell/pkg/connection/websocket"
 	"Rshell/pkg/logger"
+	"Rshell/pkg/response"
 	"fmt"
 	"net"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +29,7 @@ func ForwardConnect(c *gin.Context) {
 		Proxy   string `json:"proxy"`
 	}
 	if err := c.BindJSON(&forward); err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -37,7 +37,7 @@ func ForwardConnect(c *gin.Context) {
 	case "websocket":
 		safeAddress, err := normalizeForwardAddress(forward.Address, "")
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"status": 400, "data": err.Error()})
+			response.BadRequest(c, err.Error())
 			return
 		}
 
@@ -54,35 +54,29 @@ func ForwardConnect(c *gin.Context) {
 		client, err := websocket.StartForwardClient(config)
 		if err != nil {
 			logger.Error("Failed to start forward client:", err)
-			c.JSON(http.StatusOK, gin.H{
-				"status": 500,
-				"data":   fmt.Sprintf("Failed to connect: %v", err),
-			})
+			response.InternalError(c)
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"status": 200,
-			"data": gin.H{
-				"temp_uid":   client.UID,
-				"server":     config.ServerURL,
-				"proxy_used": config.Socks5Proxy != "",
-				"message":    "Forward connection established. Waiting for client registration...",
-			},
+		response.OK(c, gin.H{
+			"temp_uid":   client.UID,
+			"server":     config.ServerURL,
+			"proxy_used": config.Socks5Proxy != "",
+			"message":    "Forward connection established. Waiting for client registration...",
 		})
 
 		go monitorForwardConnection(client.UID, "websocket")
 	case "tcp":
 		handleTCPForward(forward.Address, forward.Proxy, c)
 	default:
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": "unsupported connection type"})
+		response.BadRequest(c, "unsupported connection type")
 	}
 }
 
 func handleTCPForward(address, proxy string, c *gin.Context) {
 	safeAddress, err := normalizeForwardAddress(address, "8080")
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"status": 400, "data": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -98,22 +92,16 @@ func handleTCPForward(address, proxy string, c *gin.Context) {
 	client, err := tcp.StartTCPForwardClient(config)
 	if err != nil {
 		logger.Error("Failed to start TCP forward client:", err)
-		c.JSON(http.StatusOK, gin.H{
-			"status": 500,
-			"data":   fmt.Sprintf("Failed to connect: %v", err),
-		})
+		response.InternalError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"status": 200,
-		"data": gin.H{
-			"type":       "tcp",
-			"temp_uid":   client.UID,
-			"server":     config.ServerAddress,
-			"proxy_used": config.Socks5Proxy != "",
-			"message":    "TCP forward connection established. Waiting for client registration...",
-		},
+	response.OK(c, gin.H{
+		"type":       "tcp",
+		"temp_uid":   client.UID,
+		"server":     config.ServerAddress,
+		"proxy_used": config.Socks5Proxy != "",
+		"message":    "TCP forward connection established. Waiting for client registration...",
 	})
 
 	go monitorForwardConnection(client.UID, "tcp")
