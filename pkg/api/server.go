@@ -22,7 +22,7 @@ func GenServer(c *gin.Context) {
 		Listener string `json:"listener"`
 		Pass     string `json:"pass"`
 	}
-	if err := c.BindJSON(&serverBody); err != nil {
+	if err := c.ShouldBindJSON(&serverBody); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}

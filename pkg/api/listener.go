@@ -59,7 +59,7 @@ func AddListener(c *gin.Context) {
 		ConnectAddress string `json:"connectAddress"`
 	}
 
-	if err := c.BindJSON(&listener); err != nil {
+	if err := c.ShouldBindJSON(&listener); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -122,7 +122,7 @@ func OpenListener(c *gin.Context) {
 		ListenAddress string `json:"listenAddress"`
 	}
 
-	if err := c.BindJSON(&listener); err != nil {
+	if err := c.ShouldBindJSON(&listener); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -168,7 +168,7 @@ func CloseListener(c *gin.Context) {
 		ListenAddress string `json:"listenAddress"`
 	}
 
-	if err := c.BindJSON(&listener); err != nil {
+	if err := c.ShouldBindJSON(&listener); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -201,7 +201,7 @@ func DeleteListener(c *gin.Context) {
 		ListenAddress string `json:"listenAddress"`
 	}
 
-	if err := c.BindJSON(&listener); err != nil {
+	if err := c.ShouldBindJSON(&listener); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}

@@ -28,7 +28,7 @@ func ForwardConnect(c *gin.Context) {
 		Address string `json:"address"`
 		Proxy   string `json:"proxy"`
 	}
-	if err := c.BindJSON(&forward); err != nil {
+	if err := c.ShouldBindJSON(&forward); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}

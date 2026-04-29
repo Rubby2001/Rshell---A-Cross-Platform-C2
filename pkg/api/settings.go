@@ -18,7 +18,7 @@ func ListSettings(c *gin.Context) {
 	response.OK(c, settings)
 }
 func EditSettings(c *gin.Context) {
-	if err := c.BindJSON(&settings); err != nil {
+	if err := c.ShouldBindJSON(&settings); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}

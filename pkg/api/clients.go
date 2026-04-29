@@ -398,7 +398,7 @@ func GetDownloadsInfo(c *gin.Context) {
 	var downloadBody struct {
 		Uid string `form:"uid"`
 	}
-	if err := c.BindQuery(&downloadBody); err != nil {
+	if err := c.ShouldBindQuery(&downloadBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
@@ -426,7 +426,7 @@ func DownloadDownloadedFile(c *gin.Context) {
 		FilePath string `json:"filePath"`
 	}
 
-	if err := c.BindJSON(&downloadBody); err != nil {
+	if err := c.ShouldBindJSON(&downloadBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
@@ -462,7 +462,7 @@ func ListDrives(c *gin.Context) {
 	var drivesBody struct {
 		Uid string `form:"uid"`
 	}
-	if err := c.BindQuery(&drivesBody); err != nil {
+	if err := c.ShouldBindQuery(&drivesBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
@@ -490,7 +490,7 @@ func FetchFileContent(c *gin.Context) {
 		Uid      string `json:"uid"`
 		FilePath string `json:"path"`
 	}
-	if err := c.BindJSON(&contentBody); err != nil {
+	if err := c.ShouldBindJSON(&contentBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
@@ -516,7 +516,7 @@ func ExitClient(c *gin.Context) {
 	var clientBody struct {
 		Uid string `form:"uid"`
 	}
-	if err := c.BindQuery(&clientBody); err != nil {
+	if err := c.ShouldBindQuery(&clientBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
@@ -556,7 +556,7 @@ func AddUidNote(c *gin.Context) {
 		Uid  string `json:"uid"`
 		Note string `json:"note"`
 	}
-	if err := c.BindJSON(&noteBody); err != nil {
+	if err := c.ShouldBindJSON(&noteBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
@@ -569,7 +569,7 @@ func EditSleep(c *gin.Context) {
 		Uid   string `json:"uid"`
 		Sleep string `json:"sleep"`
 	}
-	if err := c.BindJSON(&sleepBody); err != nil {
+	if err := c.ShouldBindJSON(&sleepBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
@@ -582,7 +582,7 @@ func EditColor(c *gin.Context) {
 		Uid   string `json:"uid"`
 		Color string `json:"color"`
 	}
-	if err := c.BindJSON(&colorBody); err != nil {
+	if err := c.ShouldBindJSON(&colorBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}

@@ -80,7 +80,7 @@ func DeletePlugin(c *gin.Context) {
 	var req struct {
 		Id int64 `json:"id"`
 	}
-	if err := c.BindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request")
 		return
 	}
