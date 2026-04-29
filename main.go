@@ -86,7 +86,10 @@ func main() {
 			logger.Error("Failed to parse certificate: " + certErr.Error())
 			os.Exit(1)
 		}
-		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			NextProtos:   []string{"h2", "http/1.1"},
+		}
 		listener, listenErr := net.Listen("tcp", addr)
 		if listenErr != nil {
 			logger.Error("Failed to listen: " + listenErr.Error())
