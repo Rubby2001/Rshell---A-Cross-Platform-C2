@@ -10,6 +10,7 @@ package main
 //	@security	BearerAuth
 
 import (
+	"Rshell/internal/service"
 	"Rshell/pkg/cert"
 	"Rshell/pkg/database"
 	"Rshell/pkg/encrypt"
@@ -77,7 +78,8 @@ func main() {
 
 	distFS, _ := fs.Sub(embedFS, "dist")
 	staticFs, _ := fs.Sub(distFS, "static")
-	r := routers.NewRouter(embedFS, staticFs)
+	svc := service.NewServices()
+	r := routers.NewRouter(embedFS, staticFs, svc)
 
 	addr := "0.0.0.0:" + strconv.Itoa(*bindPort)
 	logger.Info("Listening on port " + strconv.Itoa(*bindPort))

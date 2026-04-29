@@ -1,10 +1,10 @@
 package api
 
 import (
-	"Rshell/pkg/database"
+	"Rshell/internal/service"
 	"Rshell/pkg/logger"
+	"Rshell/pkg/middlewares"
 	"Rshell/pkg/response"
-	"Rshell/pkg/service"
 	"fmt"
 
 	"github.com/gin-gonic/gin"
@@ -32,38 +32,15 @@ func AddListener(c *gin.Context) {
 		return
 	}
 
-	if !service.IsValidListenerType(listener.Type) {
-		response.BadRequest(c, "Invalid listener type")
-		return
-	}
-
-	if exists, _ := database.Engine.Where("listen_address = ?", listener.ListenAddress).Exist(&database.Listener{}); exists {
-		response.BadRequest(c, "Listener already exists")
-		return
-	}
-	if listener.Type != "oss" {
-		if !service.IsPortAvailable(listener.ListenAddress) {
-			response.BadRequest(c, "Port is not available")
-			return
+	svc := middlewares.GetServices(c)
+	if err := svc.Listener.AddListener(listener.Type, listener.ListenAddress, listener.ConnectAddress); err != nil {
+		switch err.(type) {
+		case *service.ServiceError:
+			response.BadRequest(c, err.Error())
+		default:
+			logger.Error("Failed to add listener:", err)
+			response.BadRequest(c, fmt.Sprintf("Failed to start listener: %v", err))
 		}
-	}
-
-	listenerRecord := &database.Listener{
-		Type:           listener.Type,
-		ListenAddress:  listener.ListenAddress,
-		ConnectAddress: listener.ConnectAddress,
-		Status:         1,
-	}
-
-	if _, err := database.Engine.Insert(listenerRecord); err != nil {
-		logger.Error("Failed to save listener to database:", err)
-		response.BadRequest(c, "Failed to save listener")
-		return
-	}
-
-	if err := service.StartListener(listener.Type, listener.ListenAddress); err != nil {
-		database.Engine.Where("listen_address = ?", listener.ListenAddress).Update(&database.Listener{Status: 2})
-		response.BadRequest(c, fmt.Sprintf("Failed to start listener: %v", err))
 		return
 	}
 
@@ -80,8 +57,12 @@ func AddListener(c *gin.Context) {
 // @Router /api/v1/listeners [get]
 // @Security BearerAuth
 func ListListener(c *gin.Context) {
-	var listeners []database.Listener
-	database.Engine.Find(&listeners)
+	svc := middlewares.GetServices(c)
+	listeners, err := svc.Listener.ListListeners()
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
 	response.OK(c, listeners)
 }
 
@@ -111,38 +92,12 @@ func UpdateListenerStatus(c *gin.Context) {
 		return
 	}
 
-	var lis database.Listener
-	if _, err := database.Engine.Where("listen_address = ?", addr).Get(&lis); err != nil {
-		logger.Error("Failed to query listener:", err)
-		response.BadRequest(c, "Listener not found")
+	svc := middlewares.GetServices(c)
+	if err := svc.Listener.UpdateListenerStatus(addr, body.Action); err != nil {
+		response.BadRequest(c, fmt.Sprintf("Failed to update listener: %v", err))
 		return
 	}
-
-	if body.Action == "open" {
-		if instance, exists := service.GetServerInstance(addr); exists && instance.IsRunning {
-			response.BadRequest(c, "Listener is already running")
-			return
-		}
-		if lis.Type != "oss" {
-			if !service.IsPortAvailable(addr) {
-				response.BadRequest(c, "Port is not available")
-				return
-			}
-		}
-		if err := service.StartListener(lis.Type, lis.ListenAddress); err != nil {
-			response.BadRequest(c, fmt.Sprintf("Failed to start listener: %v", err))
-			return
-		}
-		database.Engine.Where("listen_address = ?", lis.ListenAddress).Update(&database.Listener{Status: 1})
-		response.OK(c, "Listener opened successfully")
-	} else {
-		if err := service.StopListener(lis.Type, lis.ListenAddress); err != nil {
-			response.BadRequest(c, fmt.Sprintf("Failed to stop listener: %v", err))
-			return
-		}
-		database.Engine.Where("listen_address = ?", lis.ListenAddress).Update(&database.Listener{Status: 2})
-		response.OK(c, "Listener closed successfully")
-	}
+	response.OK(c, "Listener status updated successfully")
 }
 
 // DeleteListener 删除监听器
@@ -162,34 +117,10 @@ func DeleteListener(c *gin.Context) {
 		return
 	}
 
-	var lis database.Listener
-	if _, err := database.Engine.Where("listen_address = ?", addr).Get(&lis); err != nil {
-		logger.Error("Failed to query listener:", err)
-		response.BadRequest(c, "Listener not found")
+	svc := middlewares.GetServices(c)
+	if err := svc.Listener.DeleteListener(addr); err != nil {
+		response.BadRequest(c, fmt.Sprintf("Failed to delete listener: %v", err))
 		return
 	}
-
-	if instance, exists := service.GetServerInstance(addr); exists && instance.IsRunning {
-		if err := service.StopListener(lis.Type, lis.ListenAddress); err != nil {
-			logger.Error("Failed to stop listener before deletion:", err)
-		}
-	}
-
-	if _, err := database.Engine.Where("listen_address = ?", addr).Delete(&database.Listener{}); err != nil {
-		logger.Error("Failed to delete listener:", err)
-		response.BadRequest(c, "Failed to delete listener")
-		return
-	}
-
 	response.OK(c, "Listener deleted successfully")
-}
-
-// StopAllServers 停止所有服务器（用于程序退出）
-func StopAllServers() {
-	service.StopAllServers()
-}
-
-// GetServerStats 获取服务器统计信息
-func GetServerStats() map[string]interface{} {
-	return service.GetServerStats()
 }

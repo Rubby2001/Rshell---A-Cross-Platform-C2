@@ -1,10 +1,10 @@
 package routers
 
 import (
+	"Rshell/internal/service"
 	"Rshell/pkg/api"
 	"Rshell/pkg/mcp"
 	"Rshell/pkg/middlewares"
-	"Rshell/pkg/swagger"
 	"embed"
 	"html/template"
 	"io/fs"
@@ -14,12 +14,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(embedFS embed.FS, staticFs fs.FS) *gin.Engine {
+func NewRouter(embedFS embed.FS, staticFs fs.FS, svc *service.Services) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 
 	// 配置 CORS
 	r.Use(middlewares.Cors())
+
+	// 注入 services
+	r.Use(middlewares.ServicesMiddleware(svc))
 
 	// 为前端页面和静态资源创建需要Basic认证的路由组
 	webGroup := r.Group("/")
@@ -168,7 +171,7 @@ func NewRouter(embedFS embed.FS, staticFs fs.FS) *gin.Engine {
 	}
 
 	// 注册 Swagger UI（仅开发模式）
-	swagger.Register(r)
+	// swagger.Register(r)
 
 	mcp.GlobalEngine = r
 

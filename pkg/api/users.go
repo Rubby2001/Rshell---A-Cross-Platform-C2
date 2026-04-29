@@ -1,8 +1,8 @@
 package api
 
 import (
-	"Rshell/pkg/common"
-	"Rshell/pkg/database"
+	"Rshell/internal/service"
+	"Rshell/pkg/middlewares"
 	"Rshell/pkg/response"
 
 	"github.com/gin-gonic/gin"
@@ -28,21 +28,14 @@ func LoginHandler(c *gin.Context) {
 		return
 	}
 
-	var users database.Users
-	has, err := database.Engine.Where("username = ?", loginData.Username).Get(&users)
+	svc := middlewares.GetServices(c)
+	token, ok, err := svc.Auth.Login(loginData.Username, loginData.Password)
 	if err != nil {
 		response.InternalError(c)
 		return
 	}
-
-	if !has || users.Password != loginData.Password {
+	if !ok {
 		response.Unauthorized(c)
-		return
-	}
-
-	token, err := common.GenerateJWT(loginData.Username)
-	if err != nil {
-		response.InternalError(c)
 		return
 	}
 	response.OK(c, gin.H{
@@ -87,34 +80,15 @@ func ChangePasswordHandler(c *gin.Context) {
 		return
 	}
 
-	if passwordData.OldPassword != passwordData.NewPassword {
-		username := c.MustGet("username").(string)
-		var users database.Users
-		has, err := database.Engine.Where("username = ?", username).Get(&users)
-		if err != nil {
-			response.InternalError(c)
-			return
-		}
-		if !has {
+	username := c.MustGet("username").(string)
+	svc := middlewares.GetServices(c)
+	if err := svc.Auth.ChangePassword(username, passwordData.OldPassword, passwordData.NewPassword); err != nil {
+		if _, ok := err.(*service.PasswordError); ok {
 			response.BadRequest(c, "password changed failed")
-			return
-		}
-		if users.Password == passwordData.OldPassword {
-			users.Password = passwordData.NewPassword
-			affected, err := database.Engine.Where("username = ?", username).Cols("password").Update(&users)
-			if err != nil {
-				response.InternalError(c)
-				return
-			}
-			if affected != 1 {
-				response.InternalError(c)
-				return
-			}
-			response.OK(c, nil)
 		} else {
-			response.BadRequest(c, "password changed failed")
+			response.InternalError(c)
 		}
-	} else {
-		response.BadRequest(c, "password changed failed")
+		return
 	}
+	response.OK(c, nil)
 }

@@ -1,10 +1,8 @@
 package api
 
 import (
-	"Rshell/pkg/database"
+	"Rshell/pkg/middlewares"
 	"Rshell/pkg/response"
-	"Rshell/pkg/service"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,9 +17,13 @@ import (
 // @Router /api/v1/webdelivery [get]
 // @Security BearerAuth
 func ListWebDelivery(c *gin.Context) {
-	var webs []database.WebDelivery
-	database.Engine.Find(&webs)
-	response.OK(c, webs)
+	svc := middlewares.GetServices(c)
+	list, err := svc.WebDelivery.ListWebDelivery()
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, list)
 }
 
 // StartWebDelivery start a web delivery
@@ -48,29 +50,11 @@ func StartWebDelivery(c *gin.Context) {
 		return
 	}
 
-	var w database.WebDelivery
-	if exist, _ := database.Engine.Where("listening_port = ?", web.Port).Exist(&w); exist {
-		response.BadRequest(c, web.Port+"端口已被配置")
-		return
-	}
-
-	if err := service.StartWebDeliveryServer(web.Port, web.OS, web.Arch, web.Listener, web.Pass, web.Filename); err != nil {
+	svc := middlewares.GetServices(c)
+	if err := svc.WebDelivery.StartWebDelivery(web.Listener, web.OS, web.Arch, web.Port, web.Filename, web.Pass); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-
-	tmp := strings.Split(strings.Split(web.Listener, "://")[1], ":")
-	database.Engine.Insert(&database.WebDelivery{
-		ListenerConfig: web.Listener,
-		OS:             web.OS,
-		Arch:           web.Arch,
-		ListeningPort:  web.Port,
-		Status:         1,
-		FileName:       web.Filename,
-		ServerAddress:  "http://" + tmp[0] + ":" + web.Port + "/" + web.Filename,
-		Pass:           web.Pass,
-	})
-
 	response.OK(c, nil)
 }
 
@@ -100,24 +84,12 @@ func UpdateWebDeliveryStatus(c *gin.Context) {
 		return
 	}
 
-	var wd database.WebDelivery
-	database.Engine.Where("listening_port = ?", port).Get(&wd)
-
-	if body.Action == "open" {
-		if err := service.RebuildWebDeliveryServer(port); err != nil {
-			response.BadRequest(c, err.Error())
-			return
-		}
-		database.Engine.Where("listening_port = ?", port).Update(&database.WebDelivery{Status: 1})
-		response.OK(c, nil)
-	} else {
-		if err := service.StopWebDeliveryServer(port); err != nil {
-			response.BadRequest(c, "Listener closed failed")
-			return
-		}
-		database.Engine.Where("listening_port = ?", port).Update(&database.WebDelivery{Status: 2})
-		response.OK(c, nil)
+	svc := middlewares.GetServices(c)
+	if err := svc.WebDelivery.UpdateWebDeliveryStatus(port, body.Action); err != nil {
+		response.BadRequest(c, err.Error())
+		return
 	}
+	response.OK(c, nil)
 }
 
 // DeleteWebDelivery 删除 WebDelivery
@@ -137,14 +109,10 @@ func DeleteWebDelivery(c *gin.Context) {
 		return
 	}
 
-	var webdelivery database.WebDelivery
-	database.Engine.Where("listening_port = ?", port).Get(&webdelivery)
-	if webdelivery.Status == 1 {
-		if err := service.DeleteWebDeliveryServer(port); err != nil {
-			response.BadRequest(c, "Listener closed failed")
-			return
-		}
+	svc := middlewares.GetServices(c)
+	if err := svc.WebDelivery.DeleteWebDelivery(port); err != nil {
+		response.BadRequest(c, err.Error())
+		return
 	}
-	database.Engine.Where("listening_port = ?", port).Delete(&database.WebDelivery{})
 	response.OK(c, nil)
 }

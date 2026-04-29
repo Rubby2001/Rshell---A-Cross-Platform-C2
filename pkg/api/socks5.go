@@ -1,11 +1,8 @@
 package api
 
 import (
-	"Rshell/pkg/database"
-	"Rshell/pkg/logger"
-	"Rshell/pkg/proxy"
+	"Rshell/pkg/middlewares"
 	"Rshell/pkg/response"
-	"Rshell/pkg/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,8 +19,12 @@ import (
 // @Security BearerAuth
 func Socks5List(c *gin.Context) {
 	uid := c.Param("uid")
-	var socks5 []database.Socks5
-	database.Engine.Where("uid = ?", uid).Find(&socks5)
+	svc := middlewares.GetServices(c)
+	socks5, err := svc.Socks5.ListSocks5(uid)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
 	response.OK(c, socks5)
 }
 
@@ -49,19 +50,12 @@ func Socks5Start(c *gin.Context) {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
-	inUse, err := service.IsPortInUse(socks5Body.Socks5port)
-	if err != nil {
-		logger.Error("检测端口时发生错误: ", socks5Body.Socks5port, err)
+
+	svc := middlewares.GetServices(c)
+	if err := svc.Socks5.StartSocks5(uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password); err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
-	if inUse {
-		response.BadRequest(c, socks5Body.Socks5port+"port already in use")
-		return
-	}
-
-	database.Engine.Insert(&database.Socks5{Type: "socks5", Uid: uid, Socks5port: socks5Body.Socks5port, UserName: socks5Body.UserName, Password: socks5Body.Password, Status: 1})
-
-	go proxy.StartSocks5Proxy(socks5Body.Socks5port, uid, socks5Body.UserName, socks5Body.Password)
 	response.OK(c, "socks5 started")
 }
 
@@ -87,16 +81,12 @@ func Socks5Open(c *gin.Context) {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
-	inUse, err := service.IsPortInUse(socks5Body.Socks5port)
-	if err != nil {
-		logger.Error("检测端口时发生错误:", socks5Body.Socks5port, err)
-	}
-	if inUse {
-		response.BadRequest(c, socks5Body.Socks5port+"port already in use")
+
+	svc := middlewares.GetServices(c)
+	if err := svc.Socks5.OpenSocks5(uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password); err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
-	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Update(&database.Socks5{Status: 1})
-	go proxy.StartSocks5Proxy(socks5Body.Socks5port, uid, socks5Body.UserName, socks5Body.Password)
 	response.OK(c, "socks5 started")
 }
 
@@ -122,19 +112,12 @@ func Socks5Close(c *gin.Context) {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
-	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Update(&database.Socks5{Status: 2})
 
-	if _, exists := proxy.Socks5Serve[socks5Body.Socks5port]; exists {
-		err := proxy.Socks5Serve[socks5Body.Socks5port].Close()
-		proxy.MuSocks5Serve.Lock()
-		delete(proxy.Socks5Serve, socks5Body.Socks5port)
-		proxy.MuSocks5Serve.Unlock()
-		if err != nil {
-			response.BadRequest(c, "socks5 close failed")
-			return
-		}
+	svc := middlewares.GetServices(c)
+	if err := svc.Socks5.CloseSocks5(uid, socks5Body.Socks5port); err != nil {
+		response.BadRequest(c, err.Error())
+		return
 	}
-
 	response.OK(c, "socks5 closed")
 }
 
@@ -160,20 +143,11 @@ func Socks5Delete(c *gin.Context) {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
-	var s database.Socks5
-	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Get(&s)
-	if s.Status == 1 {
-		if _, exists := proxy.Socks5Serve[socks5Body.Socks5port]; exists {
-			err := proxy.Socks5Serve[socks5Body.Socks5port].Close()
-			proxy.MuSocks5Serve.Lock()
-			delete(proxy.Socks5Serve, socks5Body.Socks5port)
-			proxy.MuSocks5Serve.Unlock()
-			if err != nil {
-				response.BadRequest(c, "socks5 close failed")
-				return
-			}
-		}
+
+	svc := middlewares.GetServices(c)
+	if err := svc.Socks5.DeleteSocks5(uid, socks5Body.Socks5port); err != nil {
+		response.BadRequest(c, err.Error())
+		return
 	}
-	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Delete(&database.Socks5{})
 	response.OK(c, "socks5 deleted")
 }

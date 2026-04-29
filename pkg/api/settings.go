@@ -1,7 +1,7 @@
 package api
 
 import (
-	"Rshell/pkg/database"
+	"Rshell/pkg/middlewares"
 	"Rshell/pkg/response"
 
 	"github.com/gin-gonic/gin"
@@ -16,10 +16,15 @@ import (
 // @Router /api/v1/settings [get]
 // @Security BearerAuth
 func ListSettings(c *gin.Context) {
-	var settings []database.Settings
-	database.Engine.Find(&settings)
+	svc := middlewares.GetServices(c)
+	settings, err := svc.Settings.ListSettings()
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
 	response.OK(c, settings)
 }
+
 // EditSettings edit settings
 // @Summary Edit settings
 // @Tags Settings
@@ -39,12 +44,11 @@ func EditSettings(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	for _, setting := range settings {
-		data := database.Settings{
-			Name:  setting.Name,
-			Value: setting.Value,
-		}
-		database.Engine.Where("name = ?", setting.Name).Update(&data)
+
+	svc := middlewares.GetServices(c)
+	if err := svc.Settings.UpdateSettings(settings); err != nil {
+		response.InternalError(c)
+		return
 	}
 	response.OK(c, nil)
 }
