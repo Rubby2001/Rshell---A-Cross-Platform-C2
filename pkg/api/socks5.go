@@ -11,20 +11,14 @@ import (
 )
 
 func Socks5List(c *gin.Context) {
-	var socks5Body struct {
-		Uid string `form:"uid"`
-	}
-	if err := c.ShouldBindQuery(&socks5Body); err != nil {
-		response.ValidationError(c, response.ParseValidationErrors(err))
-		return
-	}
+	uid := c.Param("uid")
 	var socks5 []database.Socks5
-	database.Engine.Where("uid = ?", socks5Body.Uid).Find(&socks5)
+	database.Engine.Where("uid = ?", uid).Find(&socks5)
 	response.OK(c, socks5)
 }
 func Socks5Start(c *gin.Context) {
+	uid := c.Param("uid")
 	var socks5Body struct {
-		Uid        string `json:"uid"`
 		Socks5port string `json:"Socks5port"`
 		UserName   string `json:"UserName"`
 		Password   string `json:"Password"`
@@ -43,14 +37,14 @@ func Socks5Start(c *gin.Context) {
 		return
 	}
 
-	database.Engine.Insert(&database.Socks5{Type: "socks5", Uid: socks5Body.Uid, Socks5port: socks5Body.Socks5port, UserName: socks5Body.UserName, Password: socks5Body.Password, Status: 1})
+	database.Engine.Insert(&database.Socks5{Type: "socks5", Uid: uid, Socks5port: socks5Body.Socks5port, UserName: socks5Body.UserName, Password: socks5Body.Password, Status: 1})
 
-	go proxy.StartSocks5Proxy(socks5Body.Socks5port, socks5Body.Uid, socks5Body.UserName, socks5Body.Password)
+	go proxy.StartSocks5Proxy(socks5Body.Socks5port, uid, socks5Body.UserName, socks5Body.Password)
 	response.OK(c, "socks5 started")
 }
 func Socks5Open(c *gin.Context) {
+	uid := c.Param("uid")
 	var socks5Body struct {
-		Uid        string `json:"uid"`
 		Socks5port string `json:"Socks5port"`
 		UserName   string `json:"UserName"`
 		Password   string `json:"Password"`
@@ -67,13 +61,13 @@ func Socks5Open(c *gin.Context) {
 		response.BadRequest(c, socks5Body.Socks5port+"port already in use")
 		return
 	}
-	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", socks5Body.Uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Update(&database.Socks5{Status: 1})
-	go proxy.StartSocks5Proxy(socks5Body.Socks5port, socks5Body.Uid, socks5Body.UserName, socks5Body.Password)
+	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Update(&database.Socks5{Status: 1})
+	go proxy.StartSocks5Proxy(socks5Body.Socks5port, uid, socks5Body.UserName, socks5Body.Password)
 	response.OK(c, "socks5 started")
 }
 func Socks5Close(c *gin.Context) {
+	uid := c.Param("uid")
 	var socks5Body struct {
-		Uid        string `json:"uid"`
 		Socks5port string `json:"Socks5port"`
 		UserName   string `json:"UserName"`
 		Password   string `json:"Password"`
@@ -82,7 +76,7 @@ func Socks5Close(c *gin.Context) {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
-	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", socks5Body.Uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Update(&database.Socks5{Status: 2})
+	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Update(&database.Socks5{Status: 2})
 
 	if _, exists := proxy.Socks5Serve[socks5Body.Socks5port]; exists {
 		err := proxy.Socks5Serve[socks5Body.Socks5port].Close()
@@ -98,8 +92,8 @@ func Socks5Close(c *gin.Context) {
 	response.OK(c, "socks5 closed")
 }
 func Socks5Delete(c *gin.Context) {
+	uid := c.Param("uid")
 	var socks5Body struct {
-		Uid        string `json:"uid"`
 		Socks5port string `json:"Socks5port"`
 		UserName   string `json:"UserName"`
 		Password   string `json:"Password"`
@@ -109,7 +103,7 @@ func Socks5Delete(c *gin.Context) {
 		return
 	}
 	var s database.Socks5
-	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", socks5Body.Uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Get(&s)
+	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Get(&s)
 	if s.Status == 1 {
 		if _, exists := proxy.Socks5Serve[socks5Body.Socks5port]; exists {
 			err := proxy.Socks5Serve[socks5Body.Socks5port].Close()
@@ -122,7 +116,7 @@ func Socks5Delete(c *gin.Context) {
 			}
 		}
 	}
-	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", socks5Body.Uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Delete(&database.Socks5{})
+	database.Engine.Where("uid = ? AND socks5port = ? AND user_name = ? AND password = ?", uid, socks5Body.Socks5port, socks5Body.UserName, socks5Body.Password).Delete(&database.Socks5{})
 	response.OK(c, "socks5 deleted")
 }
 

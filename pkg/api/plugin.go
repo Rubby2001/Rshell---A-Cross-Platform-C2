@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -77,16 +78,15 @@ func ListPlugins(c *gin.Context) {
 
 // DeletePlugin 删除插件
 func DeletePlugin(c *gin.Context) {
-	var req struct {
-		Id int64 `json:"id"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request")
+	idStr := c.Param("id")
+	id := parseInt64(idStr)
+	if id == 0 {
+		response.BadRequest(c, "Invalid plugin id")
 		return
 	}
 
 	var plugin database.Plugin
-	has, err := database.Engine.ID(req.Id).Get(&plugin)
+	has, err := database.Engine.ID(id).Get(&plugin)
 	if err != nil || !has {
 		response.NotFound(c, "Plugin not found")
 		return
@@ -96,7 +96,7 @@ func DeletePlugin(c *gin.Context) {
 	os.Remove(plugin.FilePath)
 
 	// 从数据库删除
-	_, err = database.Engine.ID(req.Id).Delete(&database.Plugin{})
+	_, err = database.Engine.ID(id).Delete(&database.Plugin{})
 	if err != nil {
 		response.InternalError(c)
 		return
@@ -107,18 +107,24 @@ func DeletePlugin(c *gin.Context) {
 
 // ExecutePlugin 执行插件
 func ExecutePlugin(c *gin.Context) {
+	idStr := c.Param("id")
+	id := parseInt64(idStr)
+	if id == 0 {
+		response.BadRequest(c, "Invalid plugin id")
+		return
+	}
+
 	var req struct {
-		Id   int64  `json:"id"`
 		Uid  string `json:"uid"`
 		Args string `json:"args"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid JSON")
+		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
 
 	var plugin database.Plugin
-	has, err := database.Engine.ID(req.Id).Get(&plugin)
+	has, err := database.Engine.ID(id).Get(&plugin)
 	if err != nil || !has {
 		response.NotFound(c, "Plugin not found")
 		return
@@ -192,4 +198,9 @@ func ExecutePlugin(c *gin.Context) {
 	}
 
 	response.OK(c, "Plugin executed")
+}
+
+func parseInt64(s string) int64 {
+	v, _ := strconv.ParseInt(s, 10, 64)
+	return v
 }

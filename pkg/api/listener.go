@@ -118,104 +118,90 @@ func ListListener(c *gin.Context) {
 
 // OpenListener 开启监听器
 func OpenListener(c *gin.Context) {
-	var listener struct {
-		ListenAddress string `json:"listenAddress"`
-	}
-
-	if err := c.ShouldBindJSON(&listener); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	// 查询监听器配置
-	var lis database.Listener
-	if _, err := database.Engine.Where("listen_address = ?", listener.ListenAddress).Get(&lis); err != nil {
-		logger.Error("Failed to query listener:", err)
-		response.BadRequest(c, "Listener not found")
-		return
-	}
-
-	// 检查是否已在运行
-	if instance, exists := getServerInstance(listener.ListenAddress); exists && instance.IsRunning {
-		response.BadRequest(c, "Listener is already running")
-		return
-	}
-	if lis.Type != "oss" {
-		// 检查端口是否可用
-		if !isPortAvailable(listener.ListenAddress) {
-			response.BadRequest(c, "Port is not available")
-			return
-		}
-	}
-
-	// 启动监听器
-	if err := startListener(lis.Type, lis.ListenAddress); err != nil {
-		response.BadRequest(c, fmt.Sprintf("Failed to start listener: %v", err))
-		return
-	}
-
-	// 更新数据库状态
-	if _, err := database.Engine.Where("listen_address = ?", lis.ListenAddress).Update(&database.Listener{Status: 1}); err != nil {
-		logger.Error("Failed to update listener status:", err)
-	}
-
-	response.OK(c, "Listener opened successfully")
+	handleListenerStatus(c, "open")
 }
 
 // CloseListener 关闭监听器
 func CloseListener(c *gin.Context) {
-	var listener struct {
-		ListenAddress string `json:"listenAddress"`
-	}
+	handleListenerStatus(c, "close")
+}
 
-	if err := c.ShouldBindJSON(&listener); err != nil {
-		response.BadRequest(c, err.Error())
+// handleListenerStatus 统一的监听器状态处理
+func handleListenerStatus(c *gin.Context, action string) {
+	addr := c.Param("addr")
+	if addr == "" {
+		response.BadRequest(c, "listenAddress is required")
 		return
 	}
 
 	// 查询监听器配置
 	var lis database.Listener
-	if _, err := database.Engine.Where("listen_address = ?", listener.ListenAddress).Get(&lis); err != nil {
+	if _, err := database.Engine.Where("listen_address = ?", addr).Get(&lis); err != nil {
 		logger.Error("Failed to query listener:", err)
 		response.BadRequest(c, "Listener not found")
 		return
 	}
 
-	// 停止监听器
-	if err := stopListener(lis.Type, lis.ListenAddress); err != nil {
-		response.BadRequest(c, fmt.Sprintf("Failed to stop listener: %v", err))
-		return
-	}
+	if action == "open" {
+		// 检查是否已在运行
+		if instance, exists := getServerInstance(addr); exists && instance.IsRunning {
+			response.BadRequest(c, "Listener is already running")
+			return
+		}
+		if lis.Type != "oss" {
+			// 检查端口是否可用
+			if !isPortAvailable(addr) {
+				response.BadRequest(c, "Port is not available")
+				return
+			}
+		}
 
-	// 更新数据库状态
-	if _, err := database.Engine.Where("listen_address = ?", lis.ListenAddress).Update(&database.Listener{Status: 2}); err != nil {
-		logger.Error("Failed to update listener status:", err)
-	}
+		// 启动监听器
+		if err := startListener(lis.Type, lis.ListenAddress); err != nil {
+			response.BadRequest(c, fmt.Sprintf("Failed to start listener: %v", err))
+			return
+		}
 
-	response.OK(c, "Listener closed successfully")
+		// 更新数据库状态
+		if _, err := database.Engine.Where("listen_address = ?", lis.ListenAddress).Update(&database.Listener{Status: 1}); err != nil {
+			logger.Error("Failed to update listener status:", err)
+		}
+
+		response.OK(c, "Listener opened successfully")
+	} else {
+		// 停止监听器
+		if err := stopListener(lis.Type, lis.ListenAddress); err != nil {
+			response.BadRequest(c, fmt.Sprintf("Failed to stop listener: %v", err))
+			return
+		}
+
+		// 更新数据库状态
+		if _, err := database.Engine.Where("listen_address = ?", lis.ListenAddress).Update(&database.Listener{Status: 2}); err != nil {
+			logger.Error("Failed to update listener status:", err)
+		}
+
+		response.OK(c, "Listener closed successfully")
+	}
 }
 
 // DeleteListener 删除监听器
 func DeleteListener(c *gin.Context) {
-	var listener struct {
-		ListenAddress string `json:"listenAddress"`
-	}
-
-	if err := c.ShouldBindJSON(&listener); err != nil {
-		response.BadRequest(c, err.Error())
+	addr := c.Param("addr")
+	if addr == "" {
+		response.BadRequest(c, "listenAddress is required")
 		return
 	}
 
 	// 查询监听器配置
 	var lis database.Listener
-	if _, err := database.Engine.Where("listen_address = ?", listener.ListenAddress).Get(&lis); err != nil {
+	if _, err := database.Engine.Where("listen_address = ?", addr).Get(&lis); err != nil {
 		logger.Error("Failed to query listener:", err)
 		response.BadRequest(c, "Listener not found")
 		return
 	}
 
 	// 如果正在运行，先停止
-	if instance, exists := getServerInstance(listener.ListenAddress); exists && instance.IsRunning {
+	if instance, exists := getServerInstance(addr); exists && instance.IsRunning {
 		if err := stopListener(lis.Type, lis.ListenAddress); err != nil {
 			logger.Error("Failed to stop listener before deletion:", err)
 			// 继续删除，但记录错误
@@ -223,7 +209,7 @@ func DeleteListener(c *gin.Context) {
 	}
 
 	// 从数据库中删除
-	if _, err := database.Engine.Where("listen_address = ?", listener.ListenAddress).Delete(&database.Listener{}); err != nil {
+	if _, err := database.Engine.Where("listen_address = ?", addr).Delete(&database.Listener{}); err != nil {
 		logger.Error("Failed to delete listener:", err)
 		response.BadRequest(c, "Failed to delete listener")
 		return

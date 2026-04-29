@@ -160,18 +160,16 @@ func StartWebDelivery(c *gin.Context) {
 	response.OK(c, nil)
 }
 func CloseWebDelivery(c *gin.Context) {
-	var web struct {
-		Port string `json:"port"`
-	}
-	if err := c.ShouldBindJSON(&web); err != nil {
-		response.BadRequest(c, err.Error())
+	port := c.Param("port")
+	if port == "" {
+		response.BadRequest(c, "port is required")
 		return
 	}
-	err := WebDeliveryServer[web.Port].Close()
+	err := WebDeliveryServer[port].Close()
 	Mutex.Lock()
-	delete(WebDeliveryServer, web.Port)
+	delete(WebDeliveryServer, port)
 	Mutex.Unlock()
-	database.Engine.Where("listening_port = ?", web.Port).Update(&database.WebDelivery{Status: 2})
+	database.Engine.Where("listening_port = ?", port).Update(&database.WebDelivery{Status: 2})
 	if err != nil {
 		response.BadRequest(c, "Listener closed failed")
 		return
@@ -180,23 +178,21 @@ func CloseWebDelivery(c *gin.Context) {
 }
 
 func OpenWebDelivery(c *gin.Context) {
-	var web struct {
-		Port string `json:"port"`
-	}
-	if err := c.ShouldBindJSON(&web); err != nil {
-		response.BadRequest(c, err.Error())
+	port := c.Param("port")
+	if port == "" {
+		response.BadRequest(c, "port is required")
 		return
 	}
-	inUse, err := isPortInUse(web.Port)
+	inUse, err := isPortInUse(port)
 	if err != nil {
-		logger.Error("检测端口 %s 时发生错误: %v\n", web.Port, err)
+		logger.Error("检测端口 %s 时发生错误: %v\n", port, err)
 	}
 	if inUse {
-		response.BadRequest(c, web.Port+"端口被占用")
+		response.BadRequest(c, port+"端口被占用")
 		return
 	}
 	var webdelivery database.WebDelivery
-	database.Engine.Where("listening_port = ?", web.Port).Get(&webdelivery)
+	database.Engine.Where("listening_port = ?", port).Get(&webdelivery)
 
 	osType := webdelivery.OS
 	archType := webdelivery.Arch
@@ -261,7 +257,7 @@ func OpenWebDelivery(c *gin.Context) {
 		w.Write(modifiedData)
 	})
 	var wd database.WebDelivery
-	database.Engine.Where("listening_port = ?", web.Port).Get(&wd)
+	database.Engine.Where("listening_port = ?", port).Get(&wd)
 	if wd.OS == "windows" {
 		shellcode, err := godonut.GenShellcode(modifiedData, wd.Pass, wd.Arch)
 		if err != nil {
@@ -277,15 +273,15 @@ func OpenWebDelivery(c *gin.Context) {
 		})
 	}
 
-	database.Engine.Where("listening_port = ?", web.Port).Update(&database.WebDelivery{Status: 1})
+	database.Engine.Where("listening_port = ?", port).Update(&database.WebDelivery{Status: 1})
 	server := &http.Server{
-		Addr:    ":" + web.Port,
+		Addr:    ":" + port,
 		Handler: mux,
 	}
 
 	// 存储服务器实例
 	Mutex.Lock()
-	WebDeliveryServer[web.Port] = server
+	WebDeliveryServer[port] = server
 	Mutex.Unlock()
 
 	// 启动服务器（非阻塞）
@@ -300,26 +296,24 @@ func OpenWebDelivery(c *gin.Context) {
 }
 
 func DeleteWebDelivery(c *gin.Context) {
-	var web struct {
-		Port string `json:"port"`
-	}
-	if err := c.ShouldBindJSON(&web); err != nil {
-		response.BadRequest(c, err.Error())
+	port := c.Param("port")
+	if port == "" {
+		response.BadRequest(c, "port is required")
 		return
 	}
 	var webdelivery database.WebDelivery
-	database.Engine.Where("listening_port = ?", web.Port).Get(&webdelivery)
+	database.Engine.Where("listening_port = ?", port).Get(&webdelivery)
 	if webdelivery.Status == 1 {
-		err := WebDeliveryServer[web.Port].Close()
+		err := WebDeliveryServer[port].Close()
 		Mutex.Lock()
-		delete(WebDeliveryServer, web.Port)
+		delete(WebDeliveryServer, port)
 		Mutex.Unlock()
-		database.Engine.Where("listening_port = ?", web.Port).Delete(&database.WebDelivery{})
+		database.Engine.Where("listening_port = ?", port).Delete(&database.WebDelivery{})
 		if err != nil {
 			response.BadRequest(c, "Listener closed failed")
 			return
 		}
 	}
-	database.Engine.Where("listening_port = ?", web.Port).Delete(&database.WebDelivery{})
+	database.Engine.Where("listening_port = ?", port).Delete(&database.WebDelivery{})
 	response.OK(c, nil)
 }
