@@ -41,9 +41,9 @@ func Socks5List(c *gin.Context) {
 func Socks5Start(c *gin.Context) {
 	uid := c.Param("uid")
 	var socks5Body struct {
-		Socks5port string `json:"Socks5port"`
-		UserName   string `json:"UserName"`
-		Password   string `json:"Password"`
+		Socks5port string `json:"Socks5port" binding:"required"`
+		UserName   string `json:"UserName" binding:"required"`
+		Password   string `json:"Password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&socks5Body); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -79,9 +79,9 @@ func Socks5Start(c *gin.Context) {
 func Socks5Open(c *gin.Context) {
 	uid := c.Param("uid")
 	var socks5Body struct {
-		Socks5port string `json:"Socks5port"`
-		UserName   string `json:"UserName"`
-		Password   string `json:"Password"`
+		Socks5port string `json:"Socks5port" binding:"required"`
+		UserName   string `json:"UserName" binding:"required"`
+		Password   string `json:"Password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&socks5Body); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -114,9 +114,9 @@ func Socks5Open(c *gin.Context) {
 func Socks5Close(c *gin.Context) {
 	uid := c.Param("uid")
 	var socks5Body struct {
-		Socks5port string `json:"Socks5port"`
-		UserName   string `json:"UserName"`
-		Password   string `json:"Password"`
+		Socks5port string `json:"Socks5port" binding:"required"`
+		UserName   string `json:"UserName" binding:"required"`
+		Password   string `json:"Password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&socks5Body); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -152,9 +152,9 @@ func Socks5Close(c *gin.Context) {
 func Socks5Delete(c *gin.Context) {
 	uid := c.Param("uid")
 	var socks5Body struct {
-		Socks5port string `json:"Socks5port"`
-		UserName   string `json:"UserName"`
-		Password   string `json:"Password"`
+		Socks5port string `json:"Socks5port" binding:"required"`
+		UserName   string `json:"UserName" binding:"required"`
+		Password   string `json:"Password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&socks5Body); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))

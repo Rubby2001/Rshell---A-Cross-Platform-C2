@@ -35,8 +35,8 @@ import (
 // @Security BearerAuth
 func ForwardConnect(c *gin.Context) {
 	var forward struct {
-		Type    string `json:"type"`
-		Address string `json:"address"`
+		Type    string `json:"type" binding:"required"`
+		Address string `json:"address" binding:"required"`
 		Proxy   string `json:"proxy"`
 	}
 	if err := c.ShouldBindJSON(&forward); err != nil {

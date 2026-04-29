@@ -23,10 +23,10 @@ import (
 // @Security BearerAuth
 func GenServer(c *gin.Context) {
 	var serverBody struct {
-		OsType   string `json:"osType"`
-		ArchType string `json:"archType"`
-		Listener string `json:"listener"`
-		Pass     string `json:"pass"`
+		OsType   string `json:"osType" binding:"required"`
+		ArchType string `json:"archType" binding:"required"`
+		Listener string `json:"listener" binding:"required"`
+		Pass     string `json:"pass" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&serverBody); err != nil {
 		response.BadRequest(c, err.Error())

@@ -36,12 +36,12 @@ func ListWebDelivery(c *gin.Context) {
 // @Security BearerAuth
 func StartWebDelivery(c *gin.Context) {
 	var web struct {
-		Listener string `json:"listener"`
-		OS       string `json:"os"`
-		Arch     string `json:"arch"`
-		Port     string `json:"port"`
-		Filename string `json:"filename"`
-		Pass     string `json:"pass"`
+		Listener string `json:"listener" binding:"required"`
+		OS       string `json:"os" binding:"required"`
+		Arch     string `json:"arch" binding:"required"`
+		Port     string `json:"port" binding:"required"`
+		Filename string `json:"filename" binding:"required"`
+		Pass     string `json:"pass" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&web); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -87,7 +87,7 @@ func StartWebDelivery(c *gin.Context) {
 // @Security BearerAuth
 func UpdateWebDeliveryStatus(c *gin.Context) {
 	var body struct {
-		Action string `json:"action"` // "open" or "close"
+		Action string `json:"action" binding:"required"` // "open" or "close"
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, err.Error())

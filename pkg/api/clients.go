@@ -61,7 +61,7 @@ func GetClients(c *gin.Context) {
 func SendCommands(c *gin.Context) {
 	uid := c.Param("uid")
 	var commands struct {
-		Command string `json:"command"`
+		Command string `json:"command" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&commands); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -153,17 +153,12 @@ func KillPid(c *gin.Context) {
 func FileBrowse(c *gin.Context) {
 	uid := c.Param("uid")
 	var fileBody struct {
-		DirPath string `form:"dirPath"`
+		DirPath string `form:"dirPath" binding:"required"`
 	}
 	if err := c.ShouldBindQuery(&fileBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
 		return
 	}
-	if fileBody.DirPath == "" {
-		response.BadRequest(c, "dirPath is empty")
-		return
-	}
-
 	queue := command.VarFileBrowserQueue.GetOrCreateQueue(uid)
 	if strings.HasSuffix(fileBody.DirPath, ":") {
 		fileBody.DirPath += "/"
@@ -199,7 +194,7 @@ func FileBrowse(c *gin.Context) {
 func FileDelete(c *gin.Context) {
 	uid := c.Param("uid")
 	var fileBody struct {
-		FilePath string `form:"filePath"`
+		FilePath string `form:"filePath" binding:"required"`
 	}
 	if err := c.ShouldBindQuery(&fileBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -242,7 +237,7 @@ func FileDelete(c *gin.Context) {
 func MakeDir(c *gin.Context) {
 	uid := c.Param("uid")
 	var dirBody struct {
-		DirPath string `json:"dirPath"`
+		DirPath string `json:"dirPath" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&dirBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -360,7 +355,7 @@ func GetNote(c *gin.Context) {
 func SaveNote(c *gin.Context) {
 	uid := c.Param("uid")
 	var noteBody struct {
-		NoteContent string `json:"noteContent"`
+		NoteContent string `json:"noteContent" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&noteBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -385,17 +380,11 @@ func SaveNote(c *gin.Context) {
 func DownloadFile(c *gin.Context) {
 	uid := c.Param("uid")
 	var fileBody struct {
-		FilePath string `json:"filePath"`
+		FilePath string `json:"filePath" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&fileBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
-		return
-	}
-
-	// 验证输入参数
-	if fileBody.FilePath == "" {
-		response.BadRequest(c, "UID and file path are required")
 		return
 	}
 
@@ -524,7 +513,7 @@ func GetDownloadsInfo(c *gin.Context) {
 func DownloadDownloadedFile(c *gin.Context) {
 	uid := c.Param("uid")
 	var downloadBody struct {
-		FilePath string `json:"filePath"`
+		FilePath string `json:"filePath" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&downloadBody); err != nil {
@@ -604,7 +593,7 @@ func ListDrives(c *gin.Context) {
 func FetchFileContent(c *gin.Context) {
 	uid := c.Param("uid")
 	var contentBody struct {
-		FilePath string `form:"path"`
+		FilePath string `form:"path" binding:"required"`
 	}
 	if err := c.ShouldBindQuery(&contentBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -683,7 +672,7 @@ func ExitClient(c *gin.Context) {
 func AddUidNote(c *gin.Context) {
 	uid := c.Param("uid")
 	var noteBody struct {
-		Note string `json:"note"`
+		Note string `json:"note" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&noteBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -706,7 +695,7 @@ func AddUidNote(c *gin.Context) {
 func EditSleep(c *gin.Context) {
 	uid := c.Param("uid")
 	var sleepBody struct {
-		Sleep string `json:"sleep"`
+		Sleep string `json:"sleep" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&sleepBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -729,7 +718,7 @@ func EditSleep(c *gin.Context) {
 func EditColor(c *gin.Context) {
 	uid := c.Param("uid")
 	var colorBody struct {
-		Color string `json:"color"`
+		Color string `json:"color" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&colorBody); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))

@@ -26,9 +26,9 @@ import (
 // @Security BearerAuth
 func StageShellCodeGen(c *gin.Context) {
 	var shellcode struct {
-		Listener string `json:"listener"`
-		Port     string `json:"port"`
-		Format   string `json:"format"`
+		Listener string `json:"listener" binding:"required"`
+		Port     string `json:"port" binding:"required"`
+		Format   string `json:"format" binding:"required"`
 	}
 	if err := c.ShouldBind(&shellcode); err != nil {
 		response.BadRequest(c, err.Error())

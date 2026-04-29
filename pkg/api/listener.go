@@ -22,9 +22,9 @@ import (
 // @Security BearerAuth
 func AddListener(c *gin.Context) {
 	var listener struct {
-		Type           string `json:"type"`
-		ListenAddress  string `json:"listenAddress"`
-		ConnectAddress string `json:"connectAddress"`
+		Type           string `json:"type" binding:"required"`
+		ListenAddress  string `json:"listenAddress" binding:"required"`
+		ConnectAddress string `json:"connectAddress" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&listener); err != nil {
@@ -98,7 +98,7 @@ func ListListener(c *gin.Context) {
 // @Security BearerAuth
 func UpdateListenerStatus(c *gin.Context) {
 	var body struct {
-		Action string `json:"action"` // "open" or "close"
+		Action string `json:"action" binding:"required"` // "open" or "close"
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, err.Error())

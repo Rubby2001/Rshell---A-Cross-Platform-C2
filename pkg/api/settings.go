@@ -32,8 +32,8 @@ func ListSettings(c *gin.Context) {
 // @Security BearerAuth
 func EditSettings(c *gin.Context) {
 	var settings []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
+		Name  string `json:"name" binding:"required"`
+		Value string `json:"value" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&settings); err != nil {
 		response.BadRequest(c, err.Error())

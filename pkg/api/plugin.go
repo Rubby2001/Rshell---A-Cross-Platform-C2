@@ -159,8 +159,8 @@ func ExecutePlugin(c *gin.Context) {
 	}
 
 	var req struct {
-		Uid  string `json:"uid"`
-		Args string `json:"args"`
+		Uid  string `json:"uid" binding:"required"`
+		Args string `json:"args" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))

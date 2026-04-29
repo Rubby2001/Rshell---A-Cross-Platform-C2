@@ -20,8 +20,8 @@ import (
 // @Router /api/v1/auth/login [post]
 func LoginHandler(c *gin.Context) {
 	var loginData struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username string `json:"username" binding:"required"`
+		Password string `json:"password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&loginData); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
@@ -79,8 +79,8 @@ func LogoutHandler(c *gin.Context) {
 // @Security BearerAuth
 func ChangePasswordHandler(c *gin.Context) {
 	var passwordData struct {
-		OldPassword string `form:"old_password"`
-		NewPassword string `form:"new_password"`
+		OldPassword string `form:"old_password" binding:"required"`
+		NewPassword string `form:"new_password" binding:"required"`
 	}
 	if err := c.ShouldBind(&passwordData); err != nil {
 		response.ValidationError(c, response.ParseValidationErrors(err))
