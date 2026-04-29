@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -99,7 +100,6 @@ func main() {
 type peekListener struct {
 	net.Listener
 	tlsConfig *tls.Config
-	handler   http.Handler
 }
 
 func (l *peekListener) Accept() (net.Conn, error) {
@@ -126,7 +126,7 @@ func (l *peekListener) Accept() (net.Conn, error) {
 	}
 
 	// HTTP request → return redirect connection
-	return &redirectConn{br, conn}, nil
+	return &redirectConn{br: br, conn: conn}, nil
 }
 
 // readWrapper 让 bufio.Reader + 原始 conn 组合实现 net.Conn
@@ -152,18 +152,41 @@ func (r *readWrapper) SetWriteDeadline(t time.Time) error {
 type redirectConn struct {
 	br   *bufio.Reader
 	conn net.Conn
+	done bool
 }
 
 func (r *redirectConn) Read(b []byte) (int, error) {
-	n, err := r.br.Read(b)
-	if n == 0 && err != nil {
+	if r.done {
+		return 0, net.ErrClosed
+	}
+	// 读取 HTTP 请求行
+	_, err := r.br.ReadString('\n')
+	if err != nil {
 		return 0, err
 	}
-	// 写入 302 响应
-	resp := "HTTP/1.1 302 Found\r\nLocation: https://" + r.conn.LocalAddr().String() + "\r\nConnection: close\r\n\r\n"
+	host := ""
+	for {
+		hdr, readErr := r.br.ReadString('\n')
+		if readErr != nil {
+			break
+		}
+		if hdr == "\r\n" || hdr == "\n" {
+			break
+		}
+		if len(hdr) > 6 && strings.EqualFold(hdr[:6], "host: ") {
+			host = strings.TrimSpace(hdr[6:])
+		}
+	}
+
+	if host == "" {
+		host = r.conn.LocalAddr().String()
+	}
+	port := r.conn.LocalAddr().(*net.TCPAddr).Port
+	resp := fmt.Sprintf("HTTP/1.1 302 Found\r\nLocation: https://%s:%d\r\nConnection: close\r\n\r\n", host, port)
 	r.conn.Write([]byte(resp))
 	r.conn.Close()
-	return n, nil
+	r.done = true
+	return 0, net.ErrClosed
 }
 func (r *redirectConn) Write(b []byte) (int, error)    { return 0, net.ErrClosed }
 func (r *redirectConn) Close() error                   { return r.conn.Close() }
@@ -192,7 +215,6 @@ func runTLSWithRedirect(handler http.Handler, addr, certPEM, keyPEM string) erro
 	pl := &peekListener{
 		Listener:  listener,
 		tlsConfig: tlsConfig,
-		handler:   handler,
 	}
 
 	return http.Serve(pl, handler)
