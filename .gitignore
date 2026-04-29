@@ -8,3 +8,6 @@
 /Rshell_darwin_arm64
 /.gitignore
 ./Rshell.exe
+/.claude/
+/.codex/
+./implementation_plan.md

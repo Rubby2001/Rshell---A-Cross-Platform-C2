@@ -1,12 +1,21 @@
 package main
 
+//	@title			RShell API
+//	@version		1.0
+//	@description	Cross-platform C2 framework RESTful API
+//	@BasePath		/api/v1
+//	@securityDefinitions.apikey	BearerAuth
+//	@in							header
+//	@name						Authorization
+//	@security	BearerAuth
+
 import (
 	"Rshell/pkg/database"
 	"Rshell/pkg/encrypt"
 	"Rshell/pkg/logger"
+	"Rshell/pkg/mcp"
 	"Rshell/pkg/routers"
 	"Rshell/pkg/utils"
-	"Rshell/pkg/mcp"
 	"embed"
 	"flag"
 	"io/fs"

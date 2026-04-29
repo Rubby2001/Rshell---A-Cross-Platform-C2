@@ -1,0 +1,13 @@
+basePath: /api/v1
+info:
+  contact: {}
+  description: Cross-platform C2 framework RESTful API
+  title: RShell API
+  version: "1.0"
+paths: {}
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
