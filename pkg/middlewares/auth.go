@@ -3,7 +3,7 @@ package middlewares
 /*
 修改说明：
 1. BasicAuthMiddleware 添加用户存在判断。
-2. Authorization2 添加合法性判断。
+2. Token 添加合法性判断。
 */
 
 import (
@@ -61,10 +61,10 @@ func BasicAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// AuthMiddleware validates JWT from Authorization2 or query token.
+// AuthMiddleware validates JWT from Token or query token.
 func AuthMiddleware() gin.HandlerFunc {
         return func(c *gin.Context) {
-                authHeader := strings.TrimSpace(c.GetHeader("Authorization2"))
+                authHeader := strings.TrimSpace(c.GetHeader("Token"))
                 // 支持URL查询参数传递token，方便SSE之类的客户端
                 if authHeader == "" {
                         queryToken := c.Query("token")

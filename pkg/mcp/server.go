@@ -58,7 +58,7 @@ func localApiCall(method, path string, q map[string]string, body interface{}) (s
 
 	// 生成一个管理员 JWT Token 以绕过 AuthMiddleware 校验
 	token, _ := common.GenerateJWT("admin")
-	req.Header.Set("Authorization2", "Bearer "+token)
+	req.Header.Set("Token", "Bearer "+token)
 
 	w := httptest.NewRecorder()
 	GlobalEngine.ServeHTTP(w, req)

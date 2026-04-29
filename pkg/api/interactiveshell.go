@@ -114,10 +114,10 @@ func InteractiveShell(c *gin.Context) {
 		if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 			token = strings.TrimPrefix(authHeader, "Bearer ")
 		} else {
-			// 尝试从Authorization2头部获取（你的前端可能使用这个）
-			authHeader2 := c.GetHeader("Authorization2")
-			if authHeader2 != "" && strings.HasPrefix(authHeader2, "Bearer ") {
-				token = strings.TrimPrefix(authHeader2, "Bearer ")
+			// 尝试从Token头部获取
+			authHeaderToken := c.GetHeader("Token")
+			if authHeaderToken != "" && strings.HasPrefix(authHeaderToken, "Bearer ") {
+				token = strings.TrimPrefix(authHeaderToken, "Bearer ")
 			}
 		}
 	}

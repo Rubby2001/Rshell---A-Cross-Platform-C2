@@ -6,7 +6,7 @@ package main
 //	@BasePath		/api/v1
 //	@securityDefinitions.apikey	BearerAuth
 //	@in							header
-//	@name						Authorization
+//	@name						Token
 //	@security	BearerAuth
 
 import (
