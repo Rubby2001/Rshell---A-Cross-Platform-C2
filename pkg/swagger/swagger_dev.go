@@ -1,4 +1,4 @@
-//go:build !release
+//go:build dev
 
 package swagger
 
@@ -10,7 +10,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-// Register 在开发模式注册 Swagger UI
+// Register 在开发模式注册 Swagger UI（需 -tags dev 编译）
 func Register(r *gin.Engine) {
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 }
