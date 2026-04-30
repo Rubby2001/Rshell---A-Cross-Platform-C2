@@ -39,10 +39,8 @@ func LoginHandler(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{
-		"token":       token,
-		"permissions": 1,
-		"refresh":     "mock-refresh-token",
-		"username":    loginData.Username,
+		"token":    token,
+		"username": loginData.Username,
 	})
 }
 
