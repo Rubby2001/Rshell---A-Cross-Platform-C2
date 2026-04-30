@@ -1,7 +1,7 @@
 package sendcommand
 
 import (
-	command1 "Rshell/pkg/command"
+	"Rshell/pkg/command"
 	"Rshell/pkg/connection"
 	"Rshell/pkg/connection/kcp"
 	"Rshell/pkg/connection/oss"
@@ -10,6 +10,7 @@ import (
 	"Rshell/pkg/database"
 	"Rshell/pkg/encrypt"
 	"Rshell/pkg/utils"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -18,226 +19,144 @@ import (
 	"time"
 )
 
-func SendCommand(uid string, command string) {
-	// 检查是否有临时UID到正式UID的映射
-	if realUID, exists := connection.GlobalUIDMapper.GetRealUID(uid); exists {
-		uid = realUID
+// cmdSpec defines a command's prefix and its command type ID.
+type cmdSpec struct {
+	prefix    string
+	cmdType   uint32
+	hasArg    bool
+	parseArg  func(string) []byte // custom arg parser, nil means raw string arg
+}
+
+var cmdTable = []cmdSpec{
+	{prefix: "shell ", cmdType: command.SHELL, hasArg: true},
+	{prefix: "cd ", cmdType: command.CD, hasArg: true},
+	{prefix: "sleep ", cmdType: command.SLEEP, hasArg: true, parseArg: parseSleepArg},
+	{prefix: "pause ", cmdType: command.PAUSE, hasArg: true, parseArg: parseSleepArg},
+	{prefix: "pwd", cmdType: command.PWD, hasArg: false},
+	{prefix: "exit", cmdType: command.EXIT, hasArg: false},
+	{prefix: "kill ", cmdType: command.KILL, hasArg: true, parseArg: parseKillArg},
+	{prefix: "mkdir ", cmdType: command.MKDIR, hasArg: true},
+	{prefix: "drives", cmdType: command.DRIVES, hasArg: false},
+	{prefix: "rm ", cmdType: command.RM, hasArg: true},
+	{prefix: "cp ", cmdType: command.CP, hasArg: true},
+	{prefix: "mv ", cmdType: command.MV, hasArg: true},
+	{prefix: "execute ", cmdType: command.EXECUTE, hasArg: true},
+	{prefix: "ps", cmdType: command.PS, hasArg: false},
+	{prefix: "filebrowse ", cmdType: command.FileBrowse, hasArg: true},
+	{prefix: "download ", cmdType: command.DOWNLOAD, hasArg: true},
+	{prefix: "filecontent ", cmdType: command.FileContent, hasArg: true},
+	{prefix: "socks5data ", cmdType: command.Socks5Data, hasArg: true},
+}
+
+func parseCommand(input string) ([]byte, bool) {
+	for _, spec := range cmdTable {
+		if spec.hasArg {
+			if strings.HasPrefix(input, spec.prefix) {
+				arg := strings.TrimPrefix(input, spec.prefix)
+				cmdTypeBytes := make([]byte, 4)
+				binary.BigEndian.PutUint32(cmdTypeBytes, uint32(spec.cmdType))
+				if spec.parseArg != nil {
+					return append(cmdTypeBytes, spec.parseArg(arg)...), true
+				}
+				return append(cmdTypeBytes, []byte(arg)...), true
+			}
+		} else {
+			if input == spec.prefix {
+				cmdTypeBytes := make([]byte, 4)
+				binary.BigEndian.PutUint32(cmdTypeBytes, uint32(spec.cmdType))
+				return cmdTypeBytes, true
+			}
+		}
 	}
+	return nil, false
+}
 
-	var byteToSend []byte
-	if strings.HasPrefix(command, "shell ") {
-		cmd := strings.TrimPrefix(command, "shell ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.SHELL))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if strings.HasPrefix(command, "cd ") {
-		cmd := strings.TrimPrefix(command, "cd ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.CD))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if strings.HasPrefix(command, "sleep ") {
-		cmd := strings.TrimPrefix(command, "sleep ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.SLEEP))
-		sleepTime, _ := strconv.Atoi(cmd)
-		sleepTime = sleepTime * 1000
-		sleepTimeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(sleepTimeBytes, uint32(sleepTime))
-		byteToSend = append(cmdTypeBytes, sleepTimeBytes...)
-	} else if strings.HasPrefix(command, "pause ") {
-		cmd := strings.TrimPrefix(command, "pause ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.PAUSE))
-		sleepTime, _ := strconv.Atoi(cmd)
-		sleepTime = sleepTime * 1000
-		sleepTimeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(sleepTimeBytes, uint32(sleepTime))
-		byteToSend = append(cmdTypeBytes, sleepTimeBytes...)
-	} else if command == "pwd" {
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.PWD))
-		byteToSend = cmdTypeBytes
-	} else if command == "exit" {
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.EXIT))
-		byteToSend = cmdTypeBytes
-	} else if strings.HasPrefix(command, "kill ") {
-		cmd := strings.TrimPrefix(command, "kill ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.KILL))
+func parseSleepArg(arg string) []byte {
+	sleepTime, _ := strconv.Atoi(arg)
+	sleepTime = sleepTime * 1000
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, uint32(sleepTime))
+	return buf
+}
 
-		pid, err := strconv.ParseInt(cmd, 10, 64)
-		if err != nil {
-			return // 或者处理错误
-		}
+func parseKillArg(arg string) []byte {
+	pid, err := strconv.ParseInt(arg, 10, 64)
+	if err != nil || pid < 0 || pid > math.MaxUint32 {
+		return nil
+	}
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, uint32(pid))
+	return buf
+}
 
-		// 检查 PID 是否在 uint32 有效范围内
-		if pid < 0 || pid > math.MaxUint32 {
-			return // 或者处理错误
-		}
+// sendToTransport routes encrypted payload to the correct transport.
+func sendToTransport(uid string, payload []byte) {
+	transport, _ := connection.GlobalManager.GetListenerType(uid)
+	switch transport {
+	case "web":
+		command.CommandQueues.AddCommand(uid, payload)
+	case "websocket":
+		cmdBytes, _ := encrypt.Encrypt(payload, uid)
+		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
+		cmdBase64 := encodeBase64(cmdBytes)
+		ws.SendToClient(uid, cmdBase64)
+	case "tcp":
+		cmdBytes, _ := encrypt.Encrypt(payload, uid)
+		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
+		cmdBase64 := encodeBase64(cmdBytes)
+		msgToSend := frameMessage(cmdBase64)
+		tcp.SendToClient(uid, msgToSend)
+	case "kcp":
+		cmdBytes, _ := encrypt.Encrypt(payload, uid)
+		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
+		cmdBase64 := encodeBase64(cmdBytes)
+		msgToSend := frameMessage(cmdBase64)
+		kcp.SendToClient(uid, msgToSend)
+	case "oss":
+		cmdBytes, _ := encrypt.Encrypt(payload, uid)
+		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
+		cmdBase64 := encodeBase64(cmdBytes)
+		oss.Send(oss.Service, uid+fmt.Sprintf("/server_%020d", time.Now().UnixNano()), cmdBase64)
+	}
+}
 
-		pidBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(pidBytes, uint32(pid))
-		byteToSend = append(cmdTypeBytes, pidBytes...)
-	} else if strings.HasPrefix(command, "mkdir ") {
-		cmd := strings.TrimPrefix(command, "mkdir ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.MKDIR))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if command == "drives" {
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.DRIVES))
-		byteToSend = cmdTypeBytes
-	} else if strings.HasPrefix(command, "rm ") {
-		cmd := strings.TrimPrefix(command, "rm ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.RM))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if strings.HasPrefix(command, "cp ") {
-		cmd := strings.TrimPrefix(command, "cp ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.CP))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if strings.HasPrefix(command, "mv ") {
-		cmd := strings.TrimPrefix(command, "mv ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.MV))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if strings.HasPrefix(command, "execute ") {
-		cmd := strings.TrimPrefix(command, "execute ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.EXECUTE))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if command == "ps" {
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.PS))
-		byteToSend = cmdTypeBytes
-	} else if strings.HasPrefix(command, "filebrowse ") {
-		cmd := strings.TrimPrefix(command, "filebrowse ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.FileBrowse))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if strings.HasPrefix(command, "download ") {
-		cmd := strings.TrimPrefix(command, "download ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.DOWNLOAD))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if strings.HasPrefix(command, "filecontent ") {
-		cmd := strings.TrimPrefix(command, "filecontent ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.FileContent))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if strings.HasPrefix(command, "socks5data ") {
-		cmd := strings.TrimPrefix(command, "socks5data ")
-		cmdTypeBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command1.Socks5Data))
-		byteToSend = append(cmdTypeBytes, []byte(cmd)...)
-	} else if strings.HasPrefix(command, "clear") {
+func encodeBase64(data []byte) []byte {
+	enc := make([]byte, base64.StdEncoding.EncodedLen(len(data)))
+	base64.StdEncoding.Encode(enc, data)
+	return enc
+}
+
+func frameMessage(data []byte) []byte {
+	return utils.BytesCombine(utils.WriteInt(len(data)), data)
+}
+
+func resolveUID(uid string) string {
+	if realUID, exists := connection.GlobalUIDMapper.GetRealUID(uid); exists {
+		return realUID
+	}
+	return uid
+}
+
+func SendCommand(uid string, commandStr string) {
+	uid = resolveUID(uid)
+
+	if strings.HasPrefix(commandStr, "clear") {
 		var shell database.Shell
 		database.Engine.Where("uid = ?", uid).Get(&shell)
 		shell.ShellContent = "$ clear"
 		database.Engine.Where("uid = ?", uid).Update(&shell)
 		return
-	} else {
+	}
+
+	byteToSend, ok := parseCommand(commandStr)
+	if !ok {
 		return
 	}
-	switch connection.ClientListenerType[uid] {
-	case "web":
-		command1.CommandQueues.AddCommand(uid, byteToSend)
-	case "websocket":
-		cmdBytes, _ := encrypt.Encrypt(byteToSend, uid)
-		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
-		cmdBase64, _ := encrypt.EncodeBase64(cmdBytes)
-		ws.SendToClient(uid, cmdBase64)
-		//client := ws.ClientManager[uid]
-		//client.WriteMu.Lock()
-		//client.Conn.WriteMessage(websocket.BinaryMessage, cmdBase64)
-		//client.WriteMu.Unlock()
-		//ws.ClientManager[uid].WriteMessage(websocket.BinaryMessage, cmdBase64)
-	case "tcp":
-		cmdBytes, _ := encrypt.Encrypt(byteToSend, uid)
-		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
-		cmdBase64, _ := encrypt.EncodeBase64(cmdBytes)
-		cmdLen := len(cmdBase64)
-		cmdLenBytes := utils.WriteInt(cmdLen)
-		msgToSend := utils.BytesCombine(cmdLenBytes, cmdBase64)
-		tcp.SendToClient(uid, msgToSend)
-		//client := tcp.TCPClientManger[uid]
-		//client.WriteMu.Lock()
-		//client.Conn.Write(msgToSend)
-		//client.WriteMu.Unlock()
-		//writer := bufio.NewWriter(tcp.TCPClientManger[uid])
-		//writer.Write(msgToSend)
-		//writer.Flush()
-	case "kcp":
-		cmdBytes, _ := encrypt.Encrypt(byteToSend, uid)
-		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
-		cmdBase64, _ := encrypt.EncodeBase64(cmdBytes)
-		cmdLen := len(cmdBase64)
-		cmdLenBytes := utils.WriteInt(cmdLen)
-		msgToSend := utils.BytesCombine(cmdLenBytes, cmdBase64)
-		kcp.SendToClient(uid, msgToSend)
-		//client := kcp.KCPClientManger[uid]
-		//client.WriteMu.Lock()
-		//client.Session.Write(msgToSend)
-		//client.WriteMu.Unlock()
-	case "oss":
-		cmdBytes, _ := encrypt.Encrypt(byteToSend, uid)
-		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
-		cmdBase64, _ := encrypt.EncodeBase64(cmdBytes)
-		oss.Send(oss.Service, uid+fmt.Sprintf("/server_%020d", time.Now().UnixNano()), cmdBase64)
-	}
 
+	sendToTransport(uid, byteToSend)
 }
-func SendCommandBytes(uid string, byteToSend []byte) {
-	// 检查是否有临时UID到正式UID的映射
-	if realUID, exists := connection.GlobalUIDMapper.GetRealUID(uid); exists {
-		uid = realUID
-	}
 
-	switch connection.ClientListenerType[uid] {
-	case "web":
-		command1.CommandQueues.AddCommand(uid, byteToSend)
-	case "websocket":
-		cmdBytes, _ := encrypt.Encrypt(byteToSend, uid)
-		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
-		cmdBase64, _ := encrypt.EncodeBase64(cmdBytes)
-		ws.SendToClient(uid, cmdBase64)
-		//client := ws.ClientManager[uid]
-		//client.WriteMu.Lock()
-		//client.Conn.WriteMessage(websocket.BinaryMessage, cmdBase64)
-		//client.WriteMu.Unlock()
-	case "tcp":
-		cmdBytes, _ := encrypt.Encrypt(byteToSend, uid)
-		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
-		cmdBase64, _ := encrypt.EncodeBase64(cmdBytes)
-		cmdLen := len(cmdBase64)
-		cmdLenBytes := utils.WriteInt(cmdLen)
-		msgToSend := utils.BytesCombine(cmdLenBytes, cmdBase64)
-		tcp.SendToClient(uid, msgToSend)
-		//client := tcp.TCPClientManger[uid]
-		//client.WriteMu.Lock()
-		//client.Conn.Write(msgToSend)
-		//client.WriteMu.Unlock()
-		//writer := bufio.NewWriter(tcp.TCPClientManger[uid])
-		//writer.Write(msgToSend)
-		//writer.Flush()
-	case "kcp":
-		cmdBytes, _ := encrypt.Encrypt(byteToSend, uid)
-		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
-		cmdBase64, _ := encrypt.EncodeBase64(cmdBytes)
-		cmdLen := len(cmdBase64)
-		cmdLenBytes := utils.WriteInt(cmdLen)
-		msgToSend := utils.BytesCombine(cmdLenBytes, cmdBase64)
-		kcp.SendToClient(uid, msgToSend)
-		//client := kcp.KCPClientManger[uid]
-		//client.WriteMu.Lock()
-		//client.Session.Write(msgToSend)
-		//client.WriteMu.Unlock()
-	case "oss":
-		cmdBytes, _ := encrypt.Encrypt(byteToSend, uid)
-		cmdBytes, _ = encrypt.Encrypt(cmdBytes, uid)
-		cmdBase64, _ := encrypt.EncodeBase64(cmdBytes)
-		oss.Send(oss.Service, uid+fmt.Sprintf("/server_%020d", time.Now().UnixNano()), cmdBase64)
-	}
+func SendCommandBytes(uid string, byteToSend []byte) {
+	uid = resolveUID(uid)
+	sendToTransport(uid, byteToSend)
 }

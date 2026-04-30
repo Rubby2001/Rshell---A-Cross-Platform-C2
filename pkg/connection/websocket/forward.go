@@ -3,6 +3,7 @@ package websocket
 import (
 	"Rshell/pkg/command"
 	"Rshell/pkg/connection"
+	"Rshell/pkg/connection/base"
 	"Rshell/pkg/database"
 	"Rshell/pkg/encrypt"
 	"Rshell/pkg/interactive"
@@ -19,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -381,7 +381,7 @@ func (fc *ForwardConnector) forwardMessageToHandler(message []byte) {
 			}
 
 			// 使用安全分割函数
-			hostName, UserName, processName := safeSplitOSInfo(osInfo)
+			hostName, UserName, processName := base.SafeSplitOSInfo(osInfo)
 
 			// 如果外部IP未知，使用本地IP
 			if externalIp == "unknown" || externalIp == "" {
@@ -979,45 +979,4 @@ func (fc *ForwardConnector) Close() {
 func StartForwardClient(config *ForwardConfig) (*WSClient, error) {
 	connector := NewForwardConnector(config)
 	return connector.Connect()
-}
-
-// ExampleUsage 使用示例
-// ExampleUsage 使用示例 - 修改后
-func ExampleUsage() {
-	// 配置正向连接
-	config := &ForwardConfig{
-		ServerURL:   "ws://your-server.com/ws",
-		Socks5Proxy: "127.0.0.1:1080", // 如果需要代理
-		Timeout:     30 * time.Second,
-		MaxRetries:  5,
-		RetryDelay:  10 * time.Second,
-		Reconnect:   true,
-		Headers: map[string]string{
-			"User-Agent": "Rshell-Forward-Client",
-		},
-	}
-
-	// 启动正向客户端（不再需要metainfo参数）
-	client, err := StartForwardClient(config)
-	if err != nil {
-		logger.Error("Failed to start forward client:", err)
-		return
-	}
-
-	// 注意：此时client.UID是临时值
-	// 等待FirstBlood消息后，UID会被更新
-	logger.Info("Forward client started, waiting for FirstBlood message. Temp UID:", client.UID)
-
-	// 你可以在这里添加逻辑来等待UID更新
-	go func() {
-		// 等待一段时间，检查UID是否已更新
-		time.Sleep(5 * time.Second)
-
-		// 检查UID是否还是临时的
-		if strings.HasPrefix(client.UID, "temp_") {
-			logger.Warn("Forward client still using temp UID after 5 seconds:", client.UID)
-		} else {
-			logger.Info("Forward client UID updated:", client.UID)
-		}
-	}()
 }

